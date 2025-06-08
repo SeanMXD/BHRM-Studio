@@ -429,10 +429,8 @@ class PointEditDialog(QDialog):
             idx_b = same_folder_sorted[swap_with]
             positions[idx_a]["order"], positions[idx_b]["order"] = positions[idx_b]["order"], positions[idx_a]["order"]
             save_positions_to_file(DATA_FILENAME)
-            # --- Immediately update the tree and plot ---
             if self.parent() and hasattr(self.parent(), "reload_positions"):
                 self.parent().reload_positions()
-            # Optionally, update the order field in the dialog
             self.order_edit.setText(str(positions[self._point_idx]["order"]))
 
     def reject(self):
@@ -470,7 +468,6 @@ class ControlPanel(QWidget):
             self.up_labels[i].setText(f"{val:.2f}")
 
     def get_tree_state(self):
-        """Return a dict of expanded, checked, and selected paths in the tree."""
         expanded = set()
         checked = set()
         selected = set()
@@ -491,7 +488,6 @@ class ControlPanel(QWidget):
         return {"expanded": expanded, "checked": checked, "selected": selected}
 
     def set_tree_state(self, state):
-        """Restore expanded, checked, and selected paths in the tree."""
         expanded = state.get("expanded", set())
         checked = state.get("checked", set())
         selected = state.get("selected", set())
@@ -617,45 +613,56 @@ class ControlPanel(QWidget):
         self.update_plot()
 
     def on_tree_item_changed(self, item, column):
-        # Only handle folder renames
+        # If it's a point, propagate check state up to parents
         if item.data(0, Qt.UserRole) is not None:
-            # It's a point, not a folder
-            state = item.checkState(0)
             self.area_tree.blockSignals(True)
-            def set_children(item, state):
-                for i in range(item.childCount()):
-                    child = item.child(i)
-                    child.setCheckState(0, state)
-                    set_children(child, state)
-            set_children(item, state)
+            parent = item.parent()
+            while parent:
+                all_checked = all(parent.child(i).checkState(0) == Qt.Checked for i in range(parent.childCount()))
+                any_checked = any(parent.child(i).checkState(0) == Qt.Checked for i in range(parent.childCount()))
+                if all_checked:
+                    parent.setCheckState(0, Qt.Checked)
+                elif any_checked:
+                    parent.setCheckState(0, Qt.PartiallyChecked)
+                else:
+                    parent.setCheckState(0, Qt.Unchecked)
+                parent = parent.parent()
             self.area_tree.blockSignals(False)
             self.update_plot()
             return
 
+        # If it's a folder, propagate check state to all children
+        state = item.checkState(0)
+        self.area_tree.blockSignals(True)
+        def set_children(item, state):
+            for i in range(item.childCount()):
+                child = item.child(i)
+                child.setCheckState(0, state)
+                set_children(child, state)
+        set_children(item, state)
+        self.area_tree.blockSignals(False)
+        self.update_plot()
+
         # Folder rename logic
         old_name = getattr(item, "_old_name", item.text(0))
         new_name = item.text(0)
-        if old_name == new_name or not new_name.strip():
-            return
-        # Build full path to this folder
-        path = []
-        parent = item.parent()
-        while parent:
-            path.insert(0, parent.text(0))
-            parent = parent.parent()
-        old_path = path + [old_name]
-        new_path = path + [new_name]
-        # Update all points whose path matches this folder or any subfolder
-        for p in positions:
-            parts = [part for part in p.get("path", "").split("/") if part]
-            if parts[:len(old_path)] == old_path:
-                parts = new_path + parts[len(old_path):]
-                p["path"] = "/".join(parts)
-        # Update the _old_name attribute so further renames work
-        item._old_name = new_name
-        folder_paths = self.get_all_folder_paths()
-        save_positions_to_file(self.current_map_file, folder_paths=folder_paths)
-        self.reload_positions()
+        if old_name != new_name and new_name.strip():
+            path = []
+            parent = item.parent()
+            while parent:
+                path.insert(0, parent.text(0))
+                parent = parent.parent()
+            old_path = path + [old_name]
+            new_path = path + [new_name]
+            for p in positions:
+                parts = [part for part in p.get("path", "").split("/") if part]
+                if parts[:len(old_path)] == old_path:
+                    parts = new_path + parts[len(old_path):]
+                    p["path"] = "/".join(parts)
+            item._old_name = new_name
+            folder_paths = self.get_all_folder_paths()
+            save_positions_to_file(self.current_map_file, folder_paths=folder_paths)
+            self.reload_positions()
 
     def on_tree_item_selected(self):
         if self.highlight_actor is not None:
@@ -759,7 +766,8 @@ class ControlPanel(QWidget):
                 line = f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p['orientation']}\n"
                 f.write(line)
         positions.extend(new_points)
-        save_positions_to_file(self.current_map_file)
+        folder_paths = self.get_all_folder_paths()
+        save_positions_to_file(self.current_map_file, folder_paths=folder_paths)
         self.reload_positions()
         QMessageBox.information(self, "NPCs Added", f"Added {len(new_points)} NPCs from clipboard.")
 
@@ -770,6 +778,8 @@ class ControlPanel(QWidget):
         fill_tree_widget(self.area_tree.invisibleRootItem(), tree_struct)
         self.set_tree_state(tree_state)
         self.update_plot()
+        folder_paths = self.get_all_folder_paths()
+        save_positions_to_file(self.current_map_file, folder_paths=folder_paths)
 
     def select_and_load_file(self):
         fname, _ = QFileDialog.getOpenFileName(self, "Open NPC Map File", "", "Text Files (*.txt);;All Files (*)")
@@ -921,7 +931,7 @@ class ControlPanel(QWidget):
         self.area_tree.itemChanged.connect(self.on_tree_item_changed)
         self.area_tree.itemSelectionChanged.connect(self.on_tree_item_selected)
         self.area_tree.itemDoubleClicked.connect(self.on_tree_item_double_clicked)
-        self.area_tree.setSelectionMode(QTreeWidget.ExtendedSelection)  # <-- Suggested change
+        self.area_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         tree_struct = build_tree_structure(positions)
         fill_tree_widget(self.area_tree.invisibleRootItem(), tree_struct)
         area_vbox.addWidget(self.area_tree)
@@ -1131,7 +1141,6 @@ class ControlPanel(QWidget):
         self.update_plot()
 
     def on_tree_drop_event(self, event):
-        # Save tree state and selection
         tree_state = self.get_tree_state()
         selected_items = self.area_tree.selectedItems()
         selected_indices = [item.data(0, Qt.UserRole) for item in selected_items if item.data(0, Qt.UserRole) is not None]
@@ -1142,7 +1151,6 @@ class ControlPanel(QWidget):
         save_positions_to_file(self.current_map_file, folder_paths=folder_paths)
         self.reload_positions()
 
-        # Restore selection after reload
         def select_by_indices(item):
             point_idx = item.data(0, Qt.UserRole)
             if point_idx is not None and point_idx in selected_indices:
@@ -1318,7 +1326,6 @@ class ControlPanel(QWidget):
             pass
 
     def copy_visible_points_to_clipboard(self):
-        # Collect all checked points (visible in plot)
         visible_indices = set()
         def collect_checked(item):
             point_idx = item.data(0, Qt.UserRole)
@@ -1331,7 +1338,6 @@ class ControlPanel(QWidget):
         root = self.area_tree.invisibleRootItem()
         for i in range(root.childCount()):
             collect_checked(root.child(i))
-        # Compose bot spawn lines
         lines = []
         for idx in sorted(visible_indices):
             p = positions[idx]
