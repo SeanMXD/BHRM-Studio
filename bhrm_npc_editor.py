@@ -126,9 +126,6 @@ def parse_bot_file(filename):
                     })
     return positions
 
-if os.path.exists(DATA_FILENAME):
-    positions = parse_bot_file(DATA_FILENAME)
-
 def orientation_to_vector(orientation_deg):
     angle_rad = np.deg2rad(orientation_deg)
     return np.array([
@@ -348,6 +345,7 @@ class PointEditDialog(QDialog):
         move_down_btn = QPushButton("Move Down")
         preview_btn = QPushButton("Preview")
         stop_preview_btn = QPushButton("Stop Preview")
+        self.stop_preview_btn = stop_preview_btn
         btn_layout.addWidget(goto_btn)
         btn_layout.addWidget(focal_btn)
         btn_layout.addWidget(copy_line_btn)
@@ -463,7 +461,17 @@ class ControlPanel(QWidget):
         self.init_ui()
         self.plotter.add_callback(self.on_camera_changed, 100)
         ControlPanel.get_all_folder_paths = get_all_folder_paths
-
+    def rebuild_type_checkboxes(self):
+        # Remove old checkboxes
+        for cb in getattr(self, "type_checkboxes", {}).values():
+            cb.setParent(None)
+        self.type_checkboxes = {}
+        for t in get_unique_types():
+            cb = QCheckBox(t)
+            cb.setChecked(True)
+            cb.stateChanged.connect(self.update_plot)
+            self.type_checkboxes[t] = cb
+            self.type_vbox.addWidget(cb)
     def on_camera_changed(self):
         cam = self.plotter.camera
         pos = cam.position
@@ -541,7 +549,15 @@ class ControlPanel(QWidget):
             self.plotter.render()
 
         def preview(point):
+            self._preview_backup = positions[point_idx].copy()
+            positions[point_idx].update(point)
             self.update_plot()
+
+        def stop_preview(point=None):
+            if hasattr(self, "_preview_backup"):
+                positions[point_idx].update(self._preview_backup)
+                self.update_plot()
+                del self._preview_backup
 
         def highlight(point):
             if self.highlight_actor is not None:
@@ -564,9 +580,13 @@ class ControlPanel(QWidget):
             highlight_callback=highlight
         )
 
+        dlg.stop_preview_btn.clicked.disconnect()
+        dlg.stop_preview_btn.clicked.connect(lambda: stop_preview())
+
         prev_selection = self.get_current_selection_indices()
 
         result = dlg.exec_()
+        # Always restore original if not accepted
         if result == QDialog.Accepted:
             new_point = dlg.get_values()
             try:
@@ -585,7 +605,7 @@ class ControlPanel(QWidget):
             self.set_selection_indices(prev_selection)
             QMessageBox.information(self, "Point Updated", "Point updated and saved to file.")
         else:
-            self.update_plot()
+            stop_preview()
             self.set_selection_indices(prev_selection)
 
     def update_plot(self):
@@ -786,12 +806,13 @@ class ControlPanel(QWidget):
         tree_struct = build_tree_structure(positions)
         fill_tree_widget(self.area_tree.invisibleRootItem(), tree_struct)
         self.set_tree_state(tree_state)
+        self.rebuild_type_checkboxes()
         self.update_plot()
         folder_paths = self.get_all_folder_paths()
         save_positions_to_file(self.current_map_file, folder_paths=folder_paths)
 
     def select_and_load_file(self):
-        fname, _ = QFileDialog.getOpenFileName(self, "Open NPC Map File", "", "Text Files (*.txt);;All Files (*)")
+        fname, _ = QFileDialog.getOpenFileName(self, "Open Game File", "", "Text Files (*.txt);;All Files (*)")
         if fname:
             self.load_map_file(fname)
 
@@ -809,7 +830,9 @@ class ControlPanel(QWidget):
         positions.clear()
         positions.extend(parse_bot_file(fname))
         self.reload_positions()
-        QMessageBox.information(self, "Loaded", f"Loaded {len(positions)} NPCs from {os.path.basename(fname)}.")
+        self.rebuild_type_checkboxes()
+        self.update_plot()
+        QMessageBox.information(self, "Loaded", f"Loaded {len(positions)} points from {os.path.basename(fname)}.")
 
     def save_workspace_as_file(self):
         fname, _ = QFileDialog.getSaveFileName(self, "Save Workspace", "", "Workspace Files (*.json);;All Files (*)")
@@ -955,7 +978,7 @@ class ControlPanel(QWidget):
         load_selection_btn.clicked.connect(self.load_selection_from_clipboard)
         add_npcs_btn = QPushButton("Add NPCs From Clipboard")
         add_npcs_btn.clicked.connect(self.add_npcs_from_clipboard)
-        open_file_btn = QPushButton("Open NPC File")
+        open_file_btn = QPushButton("Open Game File")
         open_file_btn.clicked.connect(self.open_other_file)
         copy_visible_btn = QPushButton("Copy Visible Points To Clipboard")
         copy_visible_btn.clicked.connect(self.copy_visible_points_to_clipboard)
@@ -985,14 +1008,14 @@ class ControlPanel(QWidget):
         area_group.setLayout(area_vbox)
 
         group = QGroupBox("NPC Types")
-        vbox = QVBoxLayout()
+        self.type_vbox = QVBoxLayout()
         self.type_checkboxes = {}
         for t in get_unique_types():
             cb = QCheckBox(t)
             cb.setChecked(True)
             cb.stateChanged.connect(self.update_plot)
             self.type_checkboxes[t] = cb
-            vbox.addWidget(cb)
+            self.type_vbox.addWidget(cb)
         type_btn_layout = QVBoxLayout()
         type_select_all = QPushButton("Select All")
         type_select_all.clicked.connect(lambda: self.select_all_types(True))
@@ -1000,8 +1023,9 @@ class ControlPanel(QWidget):
         type_deselect_all.clicked.connect(lambda: self.select_all_types(False))
         type_btn_layout.addWidget(type_select_all)
         type_btn_layout.addWidget(type_deselect_all)
-        vbox.addLayout(type_btn_layout)
-        group.setLayout(vbox)
+        self.type_vbox.addLayout(type_btn_layout)
+        group.setLayout(self.type_vbox)
+
 
         cam_group = QGroupBox("Camera Controls")
         cam_layout = QVBoxLayout()
