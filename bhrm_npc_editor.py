@@ -923,7 +923,7 @@ class ControlPanel(QWidget):
 
         area_group = QGroupBox("Paths")
         area_vbox = QVBoxLayout()
-        self.area_tree = QTreeWidget()
+        self.area_tree = DeletableTreeWidget(self)
         self.area_tree.setHeaderHidden(True)
         self.area_tree.setDragDropMode(QTreeWidget.InternalMove)
         self.area_tree.setDefaultDropAction(Qt.MoveAction)
@@ -1345,6 +1345,42 @@ class ControlPanel(QWidget):
         clipboard = QApplication.clipboard()
         clipboard.setText("\n".join(lines))
         QMessageBox.information(self, "Copied", f"Copied {len(lines)} visible points to clipboard.")
+
+    def delete_selected_points(self):
+        selected_items = self.area_tree.selectedItems()
+        if not selected_items:
+            return
+        # Only delete points, not folders
+        indices_to_delete = []
+        for item in selected_items:
+            idx = item.data(0, Qt.UserRole)
+            if idx is not None:
+                indices_to_delete.append(idx)
+        if not indices_to_delete:
+            return
+        indices_to_delete = sorted(set(indices_to_delete), reverse=True)
+        reply = QMessageBox.question(
+            self, "Delete Points",
+            f"Delete {len(indices_to_delete)} selected point(s)?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            for idx in indices_to_delete:
+                del positions[idx]
+            folder_paths = self.get_all_folder_paths()
+            save_positions_to_file(self.current_map_file, folder_paths=folder_paths)
+            self.reload_positions()
+
+class DeletableTreeWidget(QTreeWidget):
+    def __init__(self, parent_panel):
+        super().__init__()
+        self.parent_panel = parent_panel
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Delete, Qt.Key_Backspace):
+            self.parent_panel.delete_selected_points()
+        else:
+            super().keyPressEvent(event)
 
 if __name__ == "__main__":
     picker = None
