@@ -5,7 +5,7 @@
 # Black Hawk Rescue Mission NPC Point Visualizer & Editor
 #
 # Features:
-# - Loads NPC spawn points from a text file (default: npc-commands.txt).
+# - Loads NPC spawn points from a text file (default: bot_spawn_commands.txt).
 # - 3D visualization of all NPC points using PyVista.
 # - Color-coded by NPC type, with a clean legend (one entry per type).
 # - Tree-based organization by area and subsection.
@@ -49,7 +49,26 @@ positions = []
 area = None
 subsection = None
 
-DATA_FILENAME = "npc-commands.txt"
+DATA_FILENAME = "bot_spawn_commands.txt"
+
+def save_positions_to_file(filename):
+    with open(filename, "w", encoding="utf-8") as f:
+        last_area = None
+        last_subsection = None
+        for p in positions:
+            if p["area"] != last_area:
+                last_area = p["area"]
+                f.write(f"# {last_area}\n")
+                last_subsection = None
+            if p.get("subsection"):
+                if p["subsection"] != last_subsection:
+                    last_subsection = p["subsection"]
+                    f.write(f"## {last_subsection}\n")
+            else:
+                last_subsection = None
+            line = f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p['orientation']}\n"
+            f.write(line)
+
 
 with open(DATA_FILENAME, "r", encoding="utf-8") as f:
     for line in f:
@@ -78,9 +97,9 @@ with open(DATA_FILENAME, "r", encoding="utf-8") as f:
                 })
 
 # For PyVista: x = roblox_x, y = roblox_z, z = roblox_y
-xs = np.array([p["roblox_x"] for p in positions])
-ys = np.array([p["roblox_z"] for p in positions])
-zs = np.array([p["roblox_y"] for p in positions])
+# Centralized transformed coordinates for consistent world-to-screen mapping
+transformed_positions = np.array([[-p["roblox_x"], p["roblox_z"], p["roblox_y"]] for p in positions])
+xs, ys, zs = transformed_positions[:, 0], transformed_positions[:, 1], transformed_positions[:, 2]
 types = [p["type"] for p in positions]
 unique_types = sorted(set(types))
 
@@ -121,7 +140,7 @@ def plot_points(selected_point_indices):
     for t, indices in type_to_indices.items():
         for idx in indices:
             p = positions[idx]
-            pos = np.array([p["roblox_x"], p["roblox_z"], p["roblox_y"]])
+            pos = transformed_positions[idx]
             orientation = float(p.get("orientation", 0))
             direction = orientation_to_vector(orientation)
             cone = pv.Cone(center=pos, direction=direction, height=cone_height, radius=cone_radius, resolution=24)
@@ -171,7 +190,7 @@ class PointPicker(QObject):
         min_dist = float('inf')
         min_idx = None
         for idx, p in enumerate(self.positions):
-            pos = np.array([p["roblox_x"], p["roblox_z"], p["roblox_y"]])
+            pos = transformed_positions[idx]
             dist = np.linalg.norm(pos - np.array(picked))
             if dist < min_dist:
                 min_dist = dist
@@ -331,24 +350,8 @@ class PointEditDialog(QDialog):
         super().reject()
 
 def update_point_in_file(point_idx, new_point, filename=DATA_FILENAME):
-    # This function is only used for single-point edits, not for group renames.
-    with open(filename, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-    point = positions[point_idx]
-    orig_pattern = re.compile(
-        rf"bot spawn \d+ {re.escape(point['type'])} {point['roblox_x']} {point['roblox_y']} {point['roblox_z']}(?: {point.get('orientation', 0)})?"
-    )
-    new_line = f"bot spawn 1 {new_point['type']} {new_point['roblox_x']} {new_point['roblox_y']} {new_point['roblox_z']} {new_point['orientation']}\n"
-    replaced = False
-    for i, line in enumerate(lines):
-        if orig_pattern.match(line.strip()):
-            lines[i] = new_line
-            replaced = True
-            break
-    if not replaced:
-        raise Exception("Could not find the original point line in the file.")
-    with open(filename, "w", encoding="utf-8") as f:
-        f.writelines(lines)
+    positions[point_idx].update(new_point)
+    save_positions_to_file(filename)
 
 class ControlPanel(QWidget):
     def __init__(self, plotter):
@@ -479,7 +482,12 @@ class ControlPanel(QWidget):
         root = self.area_tree.invisibleRootItem()
         for i in range(root.childCount()):
             collect_checked(root.child(i))
-        plot_points(selected_point_indices)
+        # Only plot if there are selected points
+        if selected_point_indices:
+            plot_points(selected_point_indices)
+        else:
+            plotter.clear()
+            plotter.render()
 
     def select_all_tree(self, value=True):
         state = Qt.Checked if value else Qt.Unchecked
@@ -546,27 +554,8 @@ class ControlPanel(QWidget):
                         p["orientation"]
                     )
                 sorted_positions = sorted(positions, key=sort_key)
-                with open(self.current_map_file, "w", encoding="utf-8") as f:
-                    last_area = None
-                    last_subsection = None
-                    for p in sorted_positions:
-                        # Write area header if changed
-                        if p["area"] != last_area:
-                            last_area = p["area"]
-                            f.write(f"# {last_area}\n")
-                            last_subsection = None  # Reset subsection when area changes
-                        # Write subsection header if present and changed
-                        if p.get("subsection"):
-                            if p["subsection"] != last_subsection:
-                                last_subsection = p["subsection"]
-                                f.write(f"## {last_subsection}\n")
-                        else:
-                            last_subsection = None  # Reset subsection if not present
-                        # Always write the bot spawn line, even if identical to another
-                        line = f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p['orientation']}\n"
-                        f.write(line)
-                # Update positions list to match sorted order
                 positions[:] = sorted_positions
+                save_positions_to_file(self.current_map_file)
             except Exception as e:
                 QMessageBox.warning(self, "Save Failed", f"Could not save file after renaming: {e}")
 
@@ -585,7 +574,7 @@ class ControlPanel(QWidget):
         point_idx = item.data(0, Qt.UserRole)
         if point_idx is not None:
             p = positions[point_idx]
-            pt = np.array([[p["roblox_x"], p["roblox_z"], p["roblox_y"]]])
+            pt = transformed_positions[point_idx:point_idx + 1]
             self.highlight_actor = plotter.add_points(
                 pt, color='magenta', point_size=25, render_points_as_spheres=True
             )
@@ -672,6 +661,7 @@ class ControlPanel(QWidget):
                 line = f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p['orientation']}\n"
                 f.write(line)
         positions.extend(new_points)
+        save_positions_to_file(self.current_map_file)
         self.reload_positions()
         QMessageBox.information(self, "NPCs Added", f"Added {len(new_points)} NPCs from clipboard.")
 

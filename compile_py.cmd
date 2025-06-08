@@ -1,0 +1,1 @@
+pyinstaller bhrm_npc_editor.spec
