@@ -346,12 +346,16 @@ class PointEditDialog(QDialog):
         copy_coords_btn = QPushButton("Copy Coordinates")
         move_up_btn = QPushButton("Move Up")
         move_down_btn = QPushButton("Move Down")
+        preview_btn = QPushButton("Preview")
+        stop_preview_btn = QPushButton("Stop Preview")
         btn_layout.addWidget(goto_btn)
         btn_layout.addWidget(focal_btn)
         btn_layout.addWidget(copy_line_btn)
         btn_layout.addWidget(copy_coords_btn)
         btn_layout.addWidget(move_up_btn)
         btn_layout.addWidget(move_down_btn)
+        btn_layout.addWidget(preview_btn)
+        btn_layout.addWidget(stop_preview_btn)
         layout.addRow(btn_layout)
 
         goto_btn.clicked.connect(self.goto_point)
@@ -360,10 +364,9 @@ class PointEditDialog(QDialog):
         copy_coords_btn.clicked.connect(self.copy_coords_to_clipboard)
         move_up_btn.clicked.connect(lambda: self.move_point(-1))
         move_down_btn.clicked.connect(lambda: self.move_point(1))
+        preview_btn.clicked.connect(self.preview)
+        stop_preview_btn.clicked.connect(self.stop_preview)
 
-        for edit in [self.type_edit.lineEdit(), self.x_edit, self.y_edit, self.z_edit, self.orientation_edit, self.path_edit]:
-            edit.textChanged.connect(self.preview)
-        self.type_edit.currentTextChanged.connect(self.preview)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -373,6 +376,7 @@ class PointEditDialog(QDialog):
         self.setLayout(layout)
         self._original_values = self.get_values()
         self._point_idx = point.get("_idx", None)
+        self._previewing = False
 
     def get_values(self):
         return {
@@ -398,6 +402,14 @@ class PointEditDialog(QDialog):
             self.preview_callback(self.get_values())
         if self.highlight_callback:
             self.highlight_callback(self.get_values())
+        self._previewing = True
+
+    def stop_preview(self):
+        if self.preview_callback:
+            self.preview_callback(self._original_values)
+        if self.highlight_callback:
+            self.highlight_callback(self._original_values)
+        self._previewing = False
 
     def copy_line_to_clipboard(self):
         point = self.get_values()
@@ -434,10 +446,7 @@ class PointEditDialog(QDialog):
             self.order_edit.setText(str(positions[self._point_idx]["order"]))
 
     def reject(self):
-        if self.preview_callback:
-            self.preview_callback(self._original_values)
-        if self.highlight_callback:
-            self.highlight_callback(self._original_values)
+        self.stop_preview()
         super().reject()
 
 def update_point_in_file(point_idx, new_point, filename=DATA_FILENAME):
