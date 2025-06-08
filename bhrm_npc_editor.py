@@ -8,14 +8,14 @@
 # - Loads NPC spawn points from a text file (default: bot_spawn_commands.txt).
 # - 3D visualization of all NPC points using PyVista.
 # - Color-coded by NPC type, with a clean legend (one entry per type).
-# - Tree-based organization by area and subsection.
+# - Tree-based organization by path (folders).
 # - Select/deselect points or groups in the tree to control visibility.
 # - Double-click a point in the tree or 3D view to edit its properties.
 # - Live preview of edits in the 3D view.
 # - Camera controls: view/edit/copy/paste camera position, focal point, and up vector.
 # - Orientation marker (UP/NORTH) can be moved, hidden, shown, and is saved to workspace.
 # - Copy visible or selected points to clipboard.
-# - Add NPCs from clipboard (they are appended at the end, with no section/subsection).
+# - Add NPCs from clipboard (they are appended at the end, with no path).
 # - Open/select/load other NPC map files.
 # - Save/load workspace files (.json) that store:
 #     - Absolute map file path
@@ -44,67 +44,158 @@ import json
 import time
 import os
 
-# --- Data Parsing ---
 positions = []
-area = None
-subsection = None
-
 DATA_FILENAME = "bot_spawn_commands.txt"
 
-def save_positions_to_file(filename):
+def get_all_folder_paths(self):
+    paths = []
+    def walk(item, path):
+        if item.data(0, Qt.UserRole) is None:  # It's a folder
+            new_path = path + [item.text(0)]
+            paths.append(new_path)
+            for i in range(item.childCount()):
+                walk(item.child(i), new_path)
+    root = self.area_tree.invisibleRootItem()
+    for i in range(root.childCount()):
+        walk(root.child(i), [])
+    return paths
+
+def save_positions_to_file(filename, folder_paths=None):
+    def path_split(path):
+        return [p for p in path.split("/") if p]
+    sorted_positions = sorted(positions, key=lambda p: (path_split(p.get("path", "")), p.get("order", 0)))
     with open(filename, "w", encoding="utf-8") as f:
-        last_area = None
-        last_subsection = None
-        for p in positions:
-            if p["area"] != last_area:
-                last_area = p["area"]
-                f.write(f"# {last_area}\n")
-                last_subsection = None
-            if p.get("subsection"):
-                if p["subsection"] != last_subsection:
-                    last_subsection = p["subsection"]
-                    f.write(f"## {last_subsection}\n")
-            else:
-                last_subsection = None
+        last_path = []
+        if folder_paths:
+            for folder_path in sorted(folder_paths, key=lambda x: (len(x), x)):
+                for i in range(len(folder_path)):
+                    if last_path[:i+1] != folder_path[:i+1]:
+                        f.write("#" * (i + 1) + " " + folder_path[i] + "\n")
+                last_path = list(folder_path)
+        for p in sorted_positions:
+            path_parts = path_split(p.get("path", ""))
+            common = 0
+            for a, b in zip(last_path, path_parts):
+                if a == b:
+                    common += 1
+                else:
+                    break
+            for i in range(common, len(path_parts)):
+                f.write("#" * (i + 1) + " " + path_parts[i] + "\n")
+            last_path = path_parts
             line = f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p['orientation']}\n"
             f.write(line)
 
+def parse_bot_file(filename):
+    positions = []
+    folder_stack = []
+    folder_counters = {}
+    with open(filename, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("//"):
+                continue
+            m_folder = re.match(r"^(#+)\s*(.*)", line)
+            if m_folder:
+                level = len(m_folder.group(1))
+                name = m_folder.group(2).strip()
+                if not name:
+                    continue
+                folder_stack = folder_stack[:level-1]
+                folder_stack.append(name)
+                continue
+            if line.startswith("bot spawn"):
+                m = re.match(r"bot spawn \d+ (\S+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+)(?: ([\-\d\.]+))?", line)
+                if m:
+                    bot_type = m.group(1)
+                    roblox_x = float(m.group(2))
+                    roblox_y = float(m.group(3))
+                    roblox_z = float(m.group(4))
+                    orientation = float(m.group(5)) if m.lastindex >= 5 and m.group(5) else 0
+                    path = "/".join(folder_stack)
+                    order = folder_counters.get(path, 0)
+                    folder_counters[path] = order + 1
+                    positions.append({
+                        "type": bot_type,
+                        "roblox_x": roblox_x,
+                        "roblox_y": roblox_y,
+                        "roblox_z": roblox_z,
+                        "orientation": orientation,
+                        "path": path,
+                        "order": order
+                    })
+    return positions
 
-with open(DATA_FILENAME, "r", encoding="utf-8") as f:
-    for line in f:
-        line = line.strip()
-        if line.startswith("## "):
-            subsection = line[3:].strip()
-        elif line.startswith("# "):
-            area = line[2:].strip()
-            subsection = None
-        elif line.startswith("bot spawn"):
-            m = re.match(r"bot spawn \d+ (\S+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+)(?: ([\-\d\.]+))?", line)
-            if m:
-                bot_type = m.group(1)
-                roblox_x = float(m.group(2))
-                roblox_y = float(m.group(3))
-                roblox_z = float(m.group(4))
-                orientation = float(m.group(5)) if m.lastindex >= 5 and m.group(5) else 0
-                positions.append({
-                    "area": area,
-                    "subsection": subsection,
-                    "type": bot_type,
-                    "roblox_x": roblox_x,
-                    "roblox_y": roblox_y,
-                    "roblox_z": roblox_z,
-                    "orientation": orientation
-                })
+if os.path.exists(DATA_FILENAME):
+    positions = parse_bot_file(DATA_FILENAME)
 
-# For PyVista: x = roblox_x, y = roblox_z, z = roblox_y
-# Centralized transformed coordinates for consistent world-to-screen mapping
-transformed_positions = np.array([[-p["roblox_x"], p["roblox_z"], p["roblox_y"]] for p in positions])
-xs, ys, zs = transformed_positions[:, 0], transformed_positions[:, 1], transformed_positions[:, 2]
-types = [p["type"] for p in positions]
-unique_types = sorted(set(types))
+def orientation_to_vector(orientation_deg):
+    angle_rad = np.deg2rad(orientation_deg)
+    return np.array([
+        np.sin(angle_rad),
+        -np.cos(angle_rad),
+        0
+    ])
 
-color_list = plt.get_cmap('tab10').colors
-type_colors = {t: color_list[i % len(color_list)] for i, t in enumerate(unique_types)}
+def build_tree_structure(positions):
+    tree = {}
+    for idx, p in enumerate(positions):
+        path = p.get("path", "")
+        parts = [part for part in path.strip("/").split("/") if part] if path else []
+        node = tree
+        for part in parts:
+            if part not in node:
+                node[part] = {}
+            node = node[part]
+        if "_points" not in node:
+            node["_points"] = []
+        node["_points"].append((p.get("order", 0), idx))
+    return tree
+
+def fill_tree_widget(parent_item, tree_struct):
+    def add_nodes(node, parent):
+        for key in sorted(k for k in node.keys() if k != "_points"):
+            folder_item = QTreeWidgetItem([key])
+            folder_item.setFlags(
+                folder_item.flags()
+                | Qt.ItemIsUserCheckable
+                | Qt.ItemIsDragEnabled
+                | Qt.ItemIsDropEnabled
+                | Qt.ItemIsEditable
+            )
+            folder_item.setCheckState(0, Qt.Unchecked)
+            folder_item._old_name = key  # Track old name for rename logic
+            add_nodes(node[key], folder_item)
+            parent.addChild(folder_item)
+        if "_points" in node:
+            for order, idx in sorted(node["_points"]):
+                point = positions[idx]
+                label = f"{point['type']} ({point['roblox_x']:.1f}, {point['roblox_z']:.1f}, {point['roblox_y']:.1f})"
+                point_item = QTreeWidgetItem([label])
+                point_item.setFlags(
+                    point_item.flags()
+                    | Qt.ItemIsUserCheckable
+                    | Qt.ItemIsSelectable
+                    | Qt.ItemIsDragEnabled
+                )
+                point_item.setCheckState(0, Qt.Unchecked)
+                point_item.setData(0, Qt.UserRole, idx)
+                parent.addChild(point_item)
+    add_nodes(tree_struct, parent_item)
+
+def get_transformed_positions():
+    return np.array([[-p["roblox_x"], p["roblox_z"], p["roblox_y"]] for p in positions])
+
+def get_types():
+    return [p["type"] for p in positions]
+
+def get_unique_types():
+    return sorted(set(get_types()))
+
+def get_type_colors():
+    color_list = plt.get_cmap('tab10').colors
+    unique_types = get_unique_types()
+    return {t: color_list[i % len(color_list)] for i, t in enumerate(unique_types)}
 
 plotter = BackgroundPlotter(show=True, title="BHRM NPC Point Positions (PyVista)")
 
@@ -116,24 +207,30 @@ label_actors = []
 orientation_marker_visible = True
 orientation_marker_offset = [0, 0, 0]
 
-def orientation_to_vector(orientation_deg):
-    angle_rad = np.deg2rad(orientation_deg)
-    return np.array([
-        np.sin(angle_rad),
-        -np.cos(angle_rad),
-        0
-    ])
-
 def plot_points(selected_point_indices):
+    global xs, ys, zs, types, unique_types, type_colors
+    transformed_positions = get_transformed_positions()
+    xs, ys, zs = transformed_positions[:, 0], transformed_positions[:, 1], transformed_positions[:, 2]
+    types = get_types()
+    unique_types = get_unique_types()
+    type_colors = get_type_colors()
+
     plotter.clear()
     point_actors.clear()
     arrow_actors.clear()
     label_actors.clear()
 
+    checked_types = set()
+    if hasattr(plot_points, "panel") and hasattr(plot_points.panel, "type_checkboxes"):
+        checked_types = {t for t, cb in plot_points.panel.type_checkboxes.items() if cb.isChecked()}
+    else:
+        checked_types = set(unique_types)
+
     type_to_indices = {}
     for idx in selected_point_indices:
         t = positions[idx]["type"]
-        type_to_indices.setdefault(t, []).append(idx)
+        if t in checked_types:
+            type_to_indices.setdefault(t, []).append(idx)
 
     cone_height = 15
     cone_radius = 4
@@ -187,6 +284,7 @@ class PointPicker(QObject):
     def on_pick(self, picked):
         if picked is None:
             return
+        transformed_positions = get_transformed_positions()
         min_dist = float('inf')
         min_idx = None
         for idx, p in enumerate(self.positions):
@@ -207,43 +305,6 @@ class PointPicker(QObject):
             self.last_picked = min_idx
             self.last_time = now
 
-def build_tree_structure(positions):
-    tree = {}
-    for idx, p in enumerate(positions):
-        path = []
-        if p["area"]:
-            path.append(p["area"])
-        if p["subsection"]:
-            path.append(p["subsection"])
-        path.append(p["type"])
-        node = tree
-        for part in path:
-            if part not in node:
-                node[part] = {}
-            node = node[part]
-        if "_points" not in node:
-            node["_points"] = []
-        node["_points"].append(idx)
-    return tree
-
-def fill_tree_widget(parent_item, node, depth=0):
-    for key, child in node.items():
-        if key == "_points":
-            for point_idx in child:
-                point = positions[point_idx]
-                label = f"{point['type']} ({point['roblox_x']:.1f}, {point['roblox_z']:.1f}, {point['roblox_y']:.1f})"
-                point_item = QTreeWidgetItem([label])
-                point_item.setFlags(point_item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
-                point_item.setCheckState(0, Qt.Unchecked)
-                point_item.setData(0, Qt.UserRole, point_idx)
-                parent_item.addChild(point_item)
-        else:
-            item = QTreeWidgetItem([key])
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(0, Qt.Unchecked)
-            fill_tree_widget(item, child, depth + 1)
-            parent_item.addChild(item)
-
 class PointEditDialog(QDialog):
     def __init__(self, point, parent=None, goto_point_callback=None, set_focal_callback=None, preview_callback=None, highlight_callback=None):
         super().__init__(parent)
@@ -254,6 +315,8 @@ class PointEditDialog(QDialog):
         self.preview_callback = preview_callback
         self.highlight_callback = highlight_callback
         layout = QFormLayout(self)
+
+        unique_types = get_unique_types()
 
         self.type_edit = QComboBox()
         self.type_edit.setEditable(True)
@@ -270,28 +333,35 @@ class PointEditDialog(QDialog):
         self.orientation_edit = QLineEdit(str(point.get("orientation", 0)))
         layout.addRow("Orientation", self.orientation_edit)
 
-        self.area_edit = QLineEdit(point.get("area") or "")
-        layout.addRow("Area", self.area_edit)
-        self.subsection_edit = QLineEdit(point.get("subsection") or "")
-        layout.addRow("Subsection", self.subsection_edit)
+        self.path_edit = QLineEdit(point.get("path", ""))
+        layout.addRow("Path", self.path_edit)
+        self.order_edit = QLineEdit(str(point.get("order", 0)))
+        self.order_edit.setReadOnly(True)
+        layout.addRow("Order", self.order_edit)
 
         btn_layout = QHBoxLayout()
         goto_btn = QPushButton("Go To Perspective")
         focal_btn = QPushButton("Set Focal Here")
         copy_line_btn = QPushButton("Copy Line")
         copy_coords_btn = QPushButton("Copy Coordinates")
+        move_up_btn = QPushButton("Move Up")
+        move_down_btn = QPushButton("Move Down")
         btn_layout.addWidget(goto_btn)
         btn_layout.addWidget(focal_btn)
         btn_layout.addWidget(copy_line_btn)
         btn_layout.addWidget(copy_coords_btn)
+        btn_layout.addWidget(move_up_btn)
+        btn_layout.addWidget(move_down_btn)
         layout.addRow(btn_layout)
 
         goto_btn.clicked.connect(self.goto_point)
         focal_btn.clicked.connect(self.set_focal)
         copy_line_btn.clicked.connect(self.copy_line_to_clipboard)
         copy_coords_btn.clicked.connect(self.copy_coords_to_clipboard)
+        move_up_btn.clicked.connect(lambda: self.move_point(-1))
+        move_down_btn.clicked.connect(lambda: self.move_point(1))
 
-        for edit in [self.type_edit.lineEdit(), self.x_edit, self.y_edit, self.z_edit, self.orientation_edit, self.area_edit, self.subsection_edit]:
+        for edit in [self.type_edit.lineEdit(), self.x_edit, self.y_edit, self.z_edit, self.orientation_edit, self.path_edit]:
             edit.textChanged.connect(self.preview)
         self.type_edit.currentTextChanged.connect(self.preview)
 
@@ -302,6 +372,7 @@ class PointEditDialog(QDialog):
 
         self.setLayout(layout)
         self._original_values = self.get_values()
+        self._point_idx = point.get("_idx", None)
 
     def get_values(self):
         return {
@@ -310,8 +381,8 @@ class PointEditDialog(QDialog):
             "roblox_y": float(self.y_edit.text()),
             "roblox_z": float(self.z_edit.text()),
             "orientation": float(self.orientation_edit.text()),
-            "area": self.area_edit.text() or None,
-            "subsection": self.subsection_edit.text() or None
+            "path": self.path_edit.text(),
+            "order": int(self.order_edit.text())
         }
 
     def goto_point(self):
@@ -342,6 +413,28 @@ class PointEditDialog(QDialog):
         clipboard.setText(coords)
         QMessageBox.information(self, "Copied", "Coordinates copied to clipboard (camera paste compatible).")
 
+    def move_point(self, direction):
+        if self._point_idx is None:
+            return
+        current = positions[self._point_idx]
+        folder = current.get("path", "")
+        same_folder = [i for i, p in enumerate(positions) if p.get("path", "") == folder]
+        same_folder_sorted = sorted(same_folder, key=lambda idx: positions[idx]["order"])
+        idx_in_folder = next((i for i, idx in enumerate(same_folder_sorted) if idx == self._point_idx), None)
+        if idx_in_folder is None:
+            return
+        swap_with = idx_in_folder + direction
+        if 0 <= swap_with < len(same_folder_sorted):
+            idx_a = same_folder_sorted[idx_in_folder]
+            idx_b = same_folder_sorted[swap_with]
+            positions[idx_a]["order"], positions[idx_b]["order"] = positions[idx_b]["order"], positions[idx_a]["order"]
+            save_positions_to_file(DATA_FILENAME)
+            # --- Immediately update the tree and plot ---
+            if self.parent() and hasattr(self.parent(), "reload_positions"):
+                self.parent().reload_positions()
+            # Optionally, update the order field in the dialog
+            self.order_edit.setText(str(positions[self._point_idx]["order"]))
+
     def reject(self):
         if self.preview_callback:
             self.preview_callback(self._original_values)
@@ -359,17 +452,10 @@ class ControlPanel(QWidget):
         self.plotter = plotter
         self.highlight_actor = None
         self.current_map_file = DATA_FILENAME
-        self.workspace_path = None
         self.workspace_loaded_path = None
         self.init_ui()
         self.plotter.add_callback(self.on_camera_changed, 100)
-
-    def _get_parent_names(self, item):
-        names = []
-        while item is not None and item.parent() is not None:
-            names.insert(0, item.text(0))
-            item = item.parent()
-        return names
+        ControlPanel.get_all_folder_paths = get_all_folder_paths
 
     def on_camera_changed(self):
         cam = self.plotter.camera
@@ -383,8 +469,51 @@ class ControlPanel(QWidget):
         for i, val in enumerate(up):
             self.up_labels[i].setText(f"{val:.2f}")
 
+    def get_tree_state(self):
+        """Return a dict of expanded, checked, and selected paths in the tree."""
+        expanded = set()
+        checked = set()
+        selected = set()
+        def walk(item, path):
+            text = item.text(0)
+            this_path = path + (text,)
+            if item.isExpanded():
+                expanded.add(this_path)
+            if item.checkState(0) == Qt.Checked:
+                checked.add(this_path)
+            if item.isSelected():
+                selected.add(this_path)
+            for i in range(item.childCount()):
+                walk(item.child(i), this_path)
+        root = self.area_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            walk(root.child(i), ())
+        return {"expanded": expanded, "checked": checked, "selected": selected}
+
+    def set_tree_state(self, state):
+        """Restore expanded, checked, and selected paths in the tree."""
+        expanded = state.get("expanded", set())
+        checked = state.get("checked", set())
+        selected = state.get("selected", set())
+        def walk(item, path):
+            text = item.text(0)
+            this_path = path + (text,)
+            if this_path in expanded:
+                item.setExpanded(True)
+            if this_path in checked:
+                item.setCheckState(0, Qt.Checked)
+            if this_path in selected:
+                item.setSelected(True)
+            for i in range(item.childCount()):
+                walk(item.child(i), this_path)
+        root = self.area_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            walk(root.child(i), ())
+
     def open_point_details_popup(self, point_idx):
+        tree_state = self.get_tree_state()
         orig_point = positions[point_idx].copy()
+        orig_point["_idx"] = point_idx
 
         def goto_point(point):
             pos = np.array([point["roblox_x"], point["roblox_z"], point["roblox_y"]])
@@ -407,10 +536,6 @@ class ControlPanel(QWidget):
             self.plotter.render()
 
         def preview(point):
-            xs[point_idx] = point["roblox_x"]
-            ys[point_idx] = point["roblox_z"]
-            zs[point_idx] = point["roblox_y"]
-            types[point_idx] = point["type"]
             self.update_plot()
 
         def highlight(point):
@@ -443,29 +568,18 @@ class ControlPanel(QWidget):
                 update_point_in_file(point_idx, new_point)
             except Exception as e:
                 QMessageBox.warning(self, "Save Failed", f"Could not save point: {e}")
-                xs[point_idx] = orig_point["roblox_x"]
-                ys[point_idx] = orig_point["roblox_z"]
-                zs[point_idx] = orig_point["roblox_y"]
-                types[point_idx] = orig_point["type"]
                 self.update_plot()
                 self.set_selection_indices(prev_selection)
                 return
             positions[point_idx].update(new_point)
-            xs[point_idx] = new_point["roblox_x"]
-            ys[point_idx] = new_point["roblox_z"]
-            zs[point_idx] = new_point["roblox_y"]
-            types[point_idx] = new_point["type"]
             self.area_tree.clear()
             tree_struct = build_tree_structure(positions)
             fill_tree_widget(self.area_tree.invisibleRootItem(), tree_struct)
+            self.set_tree_state(tree_state)
             self.update_plot()
             self.set_selection_indices(prev_selection)
             QMessageBox.information(self, "Point Updated", "Point updated and saved to file.")
         else:
-            xs[point_idx] = orig_point["roblox_x"]
-            ys[point_idx] = orig_point["roblox_z"]
-            zs[point_idx] = orig_point["roblox_y"]
-            types[point_idx] = orig_point["type"]
             self.update_plot()
             self.set_selection_indices(prev_selection)
 
@@ -482,8 +596,8 @@ class ControlPanel(QWidget):
         root = self.area_tree.invisibleRootItem()
         for i in range(root.childCount()):
             collect_checked(root.child(i))
-        # Only plot if there are selected points
         if selected_point_indices:
+            plot_points.panel = self
             plot_points(selected_point_indices)
         else:
             plotter.clear()
@@ -503,61 +617,45 @@ class ControlPanel(QWidget):
         self.update_plot()
 
     def on_tree_item_changed(self, item, column):
-        state = item.checkState(0)
-        self.area_tree.blockSignals(True)
-        def set_children(item, state):
-            for i in range(item.childCount()):
-                child = item.child(i)
-                child.setCheckState(0, state)
-                set_children(child, state)
-        set_children(item, state)
-        point_idx = item.data(0, Qt.UserRole)
-        renamed = False
-        if point_idx is None and item.childCount() > 0:
-            # Determine depth: 0 = section, 1 = subsection, 2 = type
-            depth = 0
-            parent = item.parent()
-            while parent is not None:
-                depth += 1
-                parent = parent.parent()
-            # Only allow renaming for section (0) and subsection (1)
-            if depth in (0, 1):
-                def update_descendants(itm, new_value):
-                    nonlocal renamed
-                    for i in range(itm.childCount()):
-                        child = itm.child(i)
-                        child_idx = child.data(0, Qt.UserRole)
-                        if child_idx is not None:
-                            if depth == 0 and positions[child_idx]["area"] != new_value:
-                                positions[child_idx]["area"] = new_value
-                                renamed = True
-                            elif depth == 1 and positions[child_idx]["subsection"] != new_value:
-                                positions[child_idx]["subsection"] = new_value
-                                renamed = True
-                        else:
-                            update_descendants(child, new_value)
-                update_descendants(item, item.text(0))
-        self.area_tree.blockSignals(False)
-        self.update_plot()
-        # Save file if any renaming occurred (this will group all points by section/subsection)
-        if renamed:
-            try:
-                # Sort positions by area, subsection, type, x, y, z, orientation for grouping
-                def sort_key(p):
-                    return (
-                        p["area"] or "",
-                        p["subsection"] or "",
-                        p["type"],
-                        p["roblox_x"],
-                        p["roblox_y"],
-                        p["roblox_z"],
-                        p["orientation"]
-                    )
-                sorted_positions = sorted(positions, key=sort_key)
-                positions[:] = sorted_positions
-                save_positions_to_file(self.current_map_file)
-            except Exception as e:
-                QMessageBox.warning(self, "Save Failed", f"Could not save file after renaming: {e}")
+        # Only handle folder renames
+        if item.data(0, Qt.UserRole) is not None:
+            # It's a point, not a folder
+            state = item.checkState(0)
+            self.area_tree.blockSignals(True)
+            def set_children(item, state):
+                for i in range(item.childCount()):
+                    child = item.child(i)
+                    child.setCheckState(0, state)
+                    set_children(child, state)
+            set_children(item, state)
+            self.area_tree.blockSignals(False)
+            self.update_plot()
+            return
+
+        # Folder rename logic
+        old_name = getattr(item, "_old_name", item.text(0))
+        new_name = item.text(0)
+        if old_name == new_name or not new_name.strip():
+            return
+        # Build full path to this folder
+        path = []
+        parent = item.parent()
+        while parent:
+            path.insert(0, parent.text(0))
+            parent = parent.parent()
+        old_path = path + [old_name]
+        new_path = path + [new_name]
+        # Update all points whose path matches this folder or any subfolder
+        for p in positions:
+            parts = [part for part in p.get("path", "").split("/") if part]
+            if parts[:len(old_path)] == old_path:
+                parts = new_path + parts[len(old_path):]
+                p["path"] = "/".join(parts)
+        # Update the _old_name attribute so further renames work
+        item._old_name = new_name
+        folder_paths = self.get_all_folder_paths()
+        save_positions_to_file(self.current_map_file, folder_paths=folder_paths)
+        self.reload_positions()
 
     def on_tree_item_selected(self):
         if self.highlight_actor is not None:
@@ -573,7 +671,7 @@ class ControlPanel(QWidget):
         item = selected_items[0]
         point_idx = item.data(0, Qt.UserRole)
         if point_idx is not None:
-            p = positions[point_idx]
+            transformed_positions = get_transformed_positions()
             pt = transformed_positions[point_idx:point_idx + 1]
             self.highlight_actor = plotter.add_points(
                 pt, color='magenta', point_size=25, render_points_as_spheres=True
@@ -633,8 +731,8 @@ class ControlPanel(QWidget):
         clipboard = QApplication.clipboard()
         text = clipboard.text()
         new_points = []
-        # Always add with no section/subsection, and append at the end
-        for line in text.splitlines():
+        root_order = sum(1 for p in positions if p.get("path", "") == "")
+        for i, line in enumerate(text.splitlines()):
             line = line.strip()
             if line.startswith("bot spawn"):
                 m = re.match(r"bot spawn \d+ (\S+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+)(?: ([\-\d\.]+))?", line)
@@ -645,13 +743,13 @@ class ControlPanel(QWidget):
                     roblox_z = float(m.group(4))
                     orientation = float(m.group(5)) if m.lastindex >= 5 and m.group(5) else 0
                     new_points.append({
-                        "area": None,
-                        "subsection": None,
                         "type": bot_type,
                         "roblox_x": roblox_x,
                         "roblox_y": roblox_y,
                         "roblox_z": roblox_z,
-                        "orientation": orientation
+                        "orientation": orientation,
+                        "path": "",
+                        "order": root_order + i
                     })
         if not new_points:
             QMessageBox.warning(self, "No NPCs Found", "Clipboard does not contain valid NPC lines.")
@@ -666,19 +764,11 @@ class ControlPanel(QWidget):
         QMessageBox.information(self, "NPCs Added", f"Added {len(new_points)} NPCs from clipboard.")
 
     def reload_positions(self):
-        global xs, ys, zs, types, unique_types, type_colors
-        xs = np.array([p["roblox_x"] for p in positions])
-        ys = np.array([p["roblox_z"] for p in positions])
-        zs = np.array([p["roblox_y"] for p in positions])
-        types[:] = [p["type"] for p in positions]
-        unique_types[:] = sorted(set(types))
-        type_colors.clear()
-        color_list = plt.get_cmap('tab10').colors
-        for i, t in enumerate(unique_types):
-            type_colors[t] = color_list[i % len(color_list)]
+        tree_state = self.get_tree_state()
         self.area_tree.clear()
         tree_struct = build_tree_structure(positions)
         fill_tree_widget(self.area_tree.invisibleRootItem(), tree_struct)
+        self.set_tree_state(tree_state)
         self.update_plot()
 
     def select_and_load_file(self):
@@ -694,37 +784,11 @@ class ControlPanel(QWidget):
         self.select_and_load_file()
             
     def load_map_file(self, fname):
-        global positions, xs, ys, zs, types, unique_types, type_colors, DATA_FILENAME
+        global positions, DATA_FILENAME
         DATA_FILENAME = fname
         self.current_map_file = fname
         positions.clear()
-        area = None
-        subsection = None
-        with open(fname, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("## "):
-                    subsection = line[3:].strip()
-                elif line.startswith("# "):
-                    area = line[2:].strip()
-                    subsection = None
-                elif line.startswith("bot spawn"):
-                    m = re.match(r"bot spawn \d+ (\S+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+)(?: ([\-\d\.]+))?", line)
-                    if m:
-                        bot_type = m.group(1)
-                        roblox_x = float(m.group(2))
-                        roblox_y = float(m.group(3))
-                        roblox_z = float(m.group(4))
-                        orientation = float(m.group(5)) if m.lastindex >= 5 and m.group(5) else 0
-                        positions.append({
-                            "area": area,
-                            "subsection": subsection,
-                            "type": bot_type,
-                            "roblox_x": roblox_x,
-                            "roblox_y": roblox_y,
-                            "roblox_z": roblox_z,
-                            "orientation": orientation
-                        })
+        positions.extend(parse_bot_file(fname))
         self.reload_positions()
         QMessageBox.information(self, "Loaded", f"Loaded {len(positions)} NPCs from {os.path.basename(fname)}.")
 
@@ -847,13 +911,17 @@ class ControlPanel(QWidget):
         splitter = QSplitter()
         splitter.setOrientation(Qt.Vertical)
 
-        area_group = QGroupBox("Sections & Subsections")
+        area_group = QGroupBox("Paths")
         area_vbox = QVBoxLayout()
         self.area_tree = QTreeWidget()
         self.area_tree.setHeaderHidden(True)
+        self.area_tree.setDragDropMode(QTreeWidget.InternalMove)
+        self.area_tree.setDefaultDropAction(Qt.MoveAction)
+        self.area_tree.dropEvent = self.on_tree_drop_event
         self.area_tree.itemChanged.connect(self.on_tree_item_changed)
         self.area_tree.itemSelectionChanged.connect(self.on_tree_item_selected)
         self.area_tree.itemDoubleClicked.connect(self.on_tree_item_double_clicked)
+        self.area_tree.setSelectionMode(QTreeWidget.ExtendedSelection)  # <-- Suggested change
         tree_struct = build_tree_structure(positions)
         fill_tree_widget(self.area_tree.invisibleRootItem(), tree_struct)
         area_vbox.addWidget(self.area_tree)
@@ -862,8 +930,6 @@ class ControlPanel(QWidget):
         tree_select_all.clicked.connect(lambda: self.select_all_tree(True))
         tree_deselect_all = QPushButton("Deselect All")
         tree_deselect_all.clicked.connect(lambda: self.select_all_tree(False))
-        copy_visible_btn = QPushButton("Copy Visible Points")
-        copy_visible_btn.clicked.connect(self.copy_visible_points_to_clipboard)
         copy_selection_btn = QPushButton("Copy Selection To Clipboard")
         copy_selection_btn.clicked.connect(self.copy_selection_to_clipboard)
         load_selection_btn = QPushButton("Load Selection From Clipboard")
@@ -872,8 +938,9 @@ class ControlPanel(QWidget):
         add_npcs_btn.clicked.connect(self.add_npcs_from_clipboard)
         open_file_btn = QPushButton("Open NPC File")
         open_file_btn.clicked.connect(self.open_other_file)
+        copy_visible_btn = QPushButton("Copy Visible Points To Clipboard")
+        copy_visible_btn.clicked.connect(self.copy_visible_points_to_clipboard)
 
-        # --- Workspace buttons grouped together ---
         ws_btn_group = QGroupBox("Workspace")
         ws_btn_layout = QVBoxLayout()
         self.simple_save_ws_btn = QPushButton("Save Workspace")
@@ -886,25 +953,24 @@ class ControlPanel(QWidget):
         ws_btn_layout.addWidget(save_ws_btn)
         ws_btn_layout.addWidget(load_ws_btn)
         ws_btn_group.setLayout(ws_btn_layout)
-        # ---
 
         tree_btn_layout.addWidget(tree_select_all)
         tree_btn_layout.addWidget(tree_deselect_all)
-        tree_btn_layout.addWidget(copy_visible_btn)
         tree_btn_layout.addWidget(copy_selection_btn)
         tree_btn_layout.addWidget(load_selection_btn)
         tree_btn_layout.addWidget(add_npcs_btn)
         tree_btn_layout.addWidget(open_file_btn)
-        tree_btn_layout.addWidget(ws_btn_group)  # Add the workspace group last
+        tree_btn_layout.addWidget(copy_visible_btn)
+        tree_btn_layout.addWidget(ws_btn_group)
         area_vbox.addLayout(tree_btn_layout)
         area_group.setLayout(area_vbox)
 
         group = QGroupBox("NPC Types")
         vbox = QVBoxLayout()
         self.type_checkboxes = {}
-        for t in unique_types:
+        for t in get_unique_types():
             cb = QCheckBox(t)
-            cb.setChecked(False)
+            cb.setChecked(True)
             cb.stateChanged.connect(self.update_plot)
             self.type_checkboxes[t] = cb
             vbox.addWidget(cb)
@@ -1064,6 +1130,46 @@ class ControlPanel(QWidget):
         self.setLayout(main_layout)
         self.update_plot()
 
+    def on_tree_drop_event(self, event):
+        # Save tree state and selection
+        tree_state = self.get_tree_state()
+        selected_items = self.area_tree.selectedItems()
+        selected_indices = [item.data(0, Qt.UserRole) for item in selected_items if item.data(0, Qt.UserRole) is not None]
+
+        QTreeWidget.dropEvent(self.area_tree, event)
+        self.update_orders_from_tree()
+        folder_paths = self.get_all_folder_paths()
+        save_positions_to_file(self.current_map_file, folder_paths=folder_paths)
+        self.reload_positions()
+
+        # Restore selection after reload
+        def select_by_indices(item):
+            point_idx = item.data(0, Qt.UserRole)
+            if point_idx is not None and point_idx in selected_indices:
+                item.setSelected(True)
+            for i in range(item.childCount()):
+                select_by_indices(item.child(i))
+        root = self.area_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            select_by_indices(root.child(i))
+        self.set_tree_state(tree_state)
+
+    def update_orders_from_tree(self):
+        def update_orders(item, path):
+            order = 0
+            for i in range(item.childCount()):
+                child = item.child(i)
+                point_idx = child.data(0, Qt.UserRole)
+                if point_idx is not None:
+                    positions[point_idx]["order"] = order
+                    positions[point_idx]["path"] = "/".join(path)
+                    order += 1
+                else:
+                    update_orders(child, path + [child.text(0)])
+        root = self.area_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            update_orders(root.child(i), [root.child(i).text(0)])
+
     def select_all_types(self, value=True):
         for cb in self.type_checkboxes.values():
             cb.setChecked(value)
@@ -1130,49 +1236,6 @@ class ControlPanel(QWidget):
                     self.focal_edits[i].setText(f"{focal[i]:.2f}")
         except Exception as e:
             print("Clipboard does not contain valid focal point:", e)
-
-    def copy_visible_points_to_clipboard(self):
-        selected_point_indices = set()
-        def collect_checked(item):
-            point_idx = item.data(0, Qt.UserRole)
-            if point_idx is not None:
-                if item.checkState(0) == Qt.Checked:
-                    selected_point_indices.add(point_idx)
-            else:
-                for i in range(item.childCount()):
-                    collect_checked(item.child(i))
-        root = self.area_tree.invisibleRootItem()
-        for i in range(root.childCount()):
-            collect_checked(root.child(i))
-
-        with open(DATA_FILENAME, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-
-        visible_points = set()
-        for idx in selected_point_indices:
-            point = positions[idx]
-            visible_points.add((
-                point["type"],
-                point["roblox_x"],
-                point["roblox_y"],
-                point["roblox_z"],
-                point.get("orientation", 0)
-            ))
-
-        output_lines = []
-        for line in lines:
-            m = re.match(r"bot spawn \d+ (\S+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+)(?: ([\-\d\.]+))?", line.strip())
-            if m:
-                t = m.group(1)
-                x = float(m.group(2))
-                y = float(m.group(3))
-                z = float(m.group(4))
-                orientation = float(m.group(5)) if m.lastindex >= 5 and m.group(5) else 0
-                if (t, x, y, z, orientation) in visible_points:
-                    output_lines.append(line.rstrip())
-        clipboard = QApplication.clipboard()
-        clipboard.setText("\n".join(output_lines))
-        QMessageBox.information(self, "Copied", f"Copied {len(output_lines)} lines to clipboard.")
 
     def adjust_value(self, edits, idx, delta, which):
         try:
@@ -1254,6 +1317,29 @@ class ControlPanel(QWidget):
         except Exception:
             pass
 
+    def copy_visible_points_to_clipboard(self):
+        # Collect all checked points (visible in plot)
+        visible_indices = set()
+        def collect_checked(item):
+            point_idx = item.data(0, Qt.UserRole)
+            if point_idx is not None:
+                if item.checkState(0) == Qt.Checked:
+                    visible_indices.add(point_idx)
+            else:
+                for i in range(item.childCount()):
+                    collect_checked(item.child(i))
+        root = self.area_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            collect_checked(root.child(i))
+        # Compose bot spawn lines
+        lines = []
+        for idx in sorted(visible_indices):
+            p = positions[idx]
+            lines.append(f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p['orientation']}")
+        clipboard = QApplication.clipboard()
+        clipboard.setText("\n".join(lines))
+        QMessageBox.information(self, "Copied", f"Copied {len(lines)} visible points to clipboard.")
+
 if __name__ == "__main__":
     picker = None
     app = QApplication.instance()
@@ -1262,10 +1348,9 @@ if __name__ == "__main__":
     panel = ControlPanel(plotter)
     picker = PointPicker(plotter, positions, panel)
 
-    # --- Load workspace.json on startup if it exists ---
     workspace_path = os.path.join(os.path.dirname(__file__), "workspace.json")
     if os.path.exists(workspace_path):
-        panel.load_workspace_file = panel.load_workspace_file.__get__(panel)  # Ensure bound method
+        panel.load_workspace_file = panel.load_workspace_file.__get__(panel)
         with open(workspace_path, "r", encoding="utf-8") as f:
             workspace = json.load(f)
         map_file = workspace["map_file"]
