@@ -54,6 +54,27 @@ Visualizes and edits NPC spawn points for a Roblox game, using a 3D PyVista wind
 ## Extensibility
 - **Unknown commands:** Any line not matching known patterns is stored as `"raw"` and editable as plain text.
 
+## Requirements
+
+- Python 3.8+
+- numpy
+- matplotlib
+- pyvista
+- pyvistaqt
+- qtpy
+
+Install dependencies with:
+pip install numpy matplotlib pyvista pyvistaqt qtpy
+
+## Usage
+
+Run the editor with:
+
+## Building an Executable
+
+You can use PyInstaller to build a standalone executable:
+pyinstaller bhrm_npc_editor.spec
+
 ---
 
 > If you need to remember how to add new point types, change the file format, or extend the GUI, look for the relevant parsing, plotting, and dialog code.
