@@ -318,9 +318,15 @@ def plot_points(selected_point_indices):
                 point_actors.append(actor)
             # Do not plot anything for "raw" commands
 
+    # --- Orientation marker plotting (convert from Roblox axes to PyVista axes) ---
     if orientation_marker_visible and len(xs) > 0:
         min_x, min_y, min_z = xs.min(), ys.min(), zs.min()
-        ox, oy, oz = orientation_marker_offset
+        # orientation_marker_offset is in Roblox axes: [roblox_x, roblox_y, roblox_z]
+        ox_roblox, oy_roblox, oz_roblox = orientation_marker_offset
+        # Convert to PyVista axes for plotting
+        ox = -ox_roblox
+        oy = oz_roblox
+        oz = oy_roblox
         marker_base = np.array([min_x + ox, min_y + oy, min_z + oz])
         up_len = (zs.max() - min_z) * 0.2 if (zs.max() - min_z) > 0 else 10
         north_len = (ys.max() - min_y) * 0.12 if (ys.max() - min_y) > 0 else 6
@@ -334,6 +340,7 @@ def plot_points(selected_point_indices):
         north_label = plotter.add_point_labels(np.array([[marker_base[0], marker_base[1] + north_len * 1.15, marker_base[2]]]), ["N"], point_color='blue', font_size=20)
         arrow_actors.append(north_arrow)
         label_actors.append(north_label)
+    # ------------------------------------------------------------------------------
 
     legend_entries = []
     for t in type_to_indices:
@@ -1287,18 +1294,52 @@ class ControlPanel(QWidget):
         self.marker_show_btn.clicked.connect(self.toggle_orientation_marker)
         marker_layout.addWidget(self.marker_show_btn)
 
+        # Marker offset is always in Roblox axes
         self.marker_move_x = QLineEdit(str(orientation_marker_offset[0]))
         self.marker_move_y = QLineEdit(str(orientation_marker_offset[1]))
         self.marker_move_z = QLineEdit(str(orientation_marker_offset[2]))
         for edit in [self.marker_move_x, self.marker_move_y, self.marker_move_z]:
             edit.setFixedWidth(50)
             edit.editingFinished.connect(self.move_orientation_marker)
+
+        # Add up/down arrows for X, Y, Z
+        def make_arrow_buttons(edit, idx):
+            up_btn = QToolButton()
+            up_btn.setText("▲")
+            up_btn.clicked.connect(lambda _, e=edit: self.adjust_marker_value(e, 0.5))
+            down_btn = QToolButton()
+            down_btn.setText("▼")
+            down_btn.clicked.connect(lambda _, e=edit: self.adjust_marker_value(e, -0.5))
+            return up_btn, down_btn
+
+        # X
         marker_layout.addWidget(QLabel("X:"))
         marker_layout.addWidget(self.marker_move_x)
+        x_up_btn, x_down_btn = make_arrow_buttons(self.marker_move_x, 0)
+        marker_layout.addWidget(x_up_btn)
+        marker_layout.addWidget(x_down_btn)
+        # Y
         marker_layout.addWidget(QLabel("Y:"))
         marker_layout.addWidget(self.marker_move_y)
+        y_up_btn, y_down_btn = make_arrow_buttons(self.marker_move_y, 1)
+        marker_layout.addWidget(y_up_btn)
+        marker_layout.addWidget(y_down_btn)
+        # Z
         marker_layout.addWidget(QLabel("Z:"))
         marker_layout.addWidget(self.marker_move_z)
+        z_up_btn, z_down_btn = make_arrow_buttons(self.marker_move_z, 2)
+        marker_layout.addWidget(z_up_btn)
+        marker_layout.addWidget(z_down_btn)
+
+        marker_copy_btn = QPushButton("Copy Coordinates")
+        marker_copy_btn.setFixedWidth(120)
+        marker_copy_btn.clicked.connect(self.copy_marker_coords_to_clipboard)
+        marker_paste_btn = QPushButton("Paste Coordinates")
+        marker_paste_btn.setFixedWidth(120)
+        marker_paste_btn.clicked.connect(self.paste_marker_coords_from_clipboard)
+        marker_layout.addWidget(marker_copy_btn)
+        marker_layout.addWidget(marker_paste_btn)
+
         marker_group.setLayout(marker_layout)
         cam_layout.addWidget(marker_group)
 
@@ -1313,7 +1354,42 @@ class ControlPanel(QWidget):
         main_layout.addWidget(scroll)
         self.setLayout(main_layout)
         self.update_plot()
+    
+    def adjust_marker_value(self, edit, delta):
+        try:
+            val = float(edit.text())
+        except Exception:
+            val = 0.0
+        val += delta
+        edit.setText(f"{val:.2f}")
+        self.move_orientation_marker()
 
+    def copy_marker_coords_to_clipboard(self):
+        # Copy marker coordinates as Roblox axes for consistency
+        try:
+            roblox_x = float(self.marker_move_x.text())
+            roblox_y = float(self.marker_move_y.text())
+            roblox_z = float(self.marker_move_z.text())
+            coords = [roblox_x, roblox_y, roblox_z]
+            clipboard = QApplication.clipboard()
+            clipboard.setText(" ".join(str(c) for c in coords))
+            QMessageBox.information(self, "Copied", "Marker coordinates copied to clipboard (Roblox axes).")
+        except Exception:
+            QMessageBox.warning(self, "Copy Failed", "Could not copy marker coordinates.")
+
+    def paste_marker_coords_from_clipboard(self):
+        clipboard = QApplication.clipboard()
+        text = clipboard.text()
+        try:
+            parts = [float(x) for x in text.strip().replace(",", " ").split()]
+            if len(parts) != 3:
+                raise ValueError
+            self.marker_move_x.setText(str(parts[0]))
+            self.marker_move_y.setText(str(parts[1]))
+            self.marker_move_z.setText(str(parts[2]))
+            self.move_orientation_marker()
+        except Exception:
+            QMessageBox.warning(self, "Paste Failed", "Clipboard must contain three numbers (X Y Z) separated by spaces or commas (Roblox axes).")
     def on_tree_drop_event(self, event):
         tree_state = self.get_tree_state()
         selected_items = self.area_tree.selectedItems()
@@ -1491,6 +1567,7 @@ class ControlPanel(QWidget):
     def move_orientation_marker(self):
         global orientation_marker_offset
         try:
+            # Store marker offset in Roblox axes
             x = float(self.marker_move_x.text())
             y = float(self.marker_move_y.text())
             z = float(self.marker_move_z.text())
