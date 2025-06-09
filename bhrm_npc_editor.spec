@@ -6,7 +6,11 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    hiddenimports=[
+        'numpy', 'numpy.core._methods', 'numpy.lib.format',
+        'matplotlib', 'matplotlib.pyplot', 'pyvista', 'pyvistaqt',
+        'qtpy', 'qtpy.QtWidgets', 'qtpy.QtCore'
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
