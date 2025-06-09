@@ -87,6 +87,8 @@ def save_positions_to_file(filename, folder_paths=None):
                 line = f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p.get('orientation', 0)}\n"
             elif p.get("command") == "spawn":
                 line = f"spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p.get('rot_x', 0)} {p.get('rot_y', 0)} {p.get('rot_z', 0)}\n"
+            elif p.get("command") == "raw":
+                line = p.get("raw_line", "") + "\n"
             else:
                 continue
             f.write(line)
@@ -154,6 +156,18 @@ def parse_bot_file(filename):
                     "path": path,
                     "order": order
                 })
+                continue
+            # --- Support unknown commands as plain text ---
+            if line:
+                path = "/".join(folder_stack)
+                order = folder_counters.get(path, 0)
+                folder_counters[path] = order + 1
+                positions.append({
+                    "command": "raw",
+                    "raw_line": line,
+                    "path": path,
+                    "order": order
+                })
     return positions
 
 def orientation_to_vector(orientation_deg):
@@ -205,7 +219,10 @@ def fill_tree_widget(parent_item, tree_struct):
         if "_points" in node:
             for order, idx in sorted(node["_points"]):
                 point = positions[idx]
-                label = f"{point['type']} ({point['roblox_x']:.1f}, {point['roblox_z']:.1f}, {point['roblox_y']:.1f})"
+                if point.get("command") == "raw":
+                    label = f"[RAW] {point.get('raw_line', '')[:40]}"
+                else:
+                    label = f"{point.get('type', '?')} ({point.get('roblox_x', 0):.1f}, {point.get('roblox_z', 0):.1f}, {point.get('roblox_y', 0):.1f})"
                 point_item = QTreeWidgetItem([label])
                 point_item.setFlags(
                     point_item.flags()
@@ -219,10 +236,16 @@ def fill_tree_widget(parent_item, tree_struct):
     add_nodes(tree_struct, parent_item)
 
 def get_transformed_positions():
-    return np.array([[-p["roblox_x"], p["roblox_z"], p["roblox_y"]] for p in positions])
+    # Only transform points with coordinates, fallback to (0,0,0) for raw/plaintext
+    return np.array([
+        [-p["roblox_x"], p["roblox_z"], p["roblox_y"]]
+        if "roblox_x" in p and "roblox_y" in p and "roblox_z" in p
+        else [0, 0, 0]
+        for p in positions
+    ])
 
 def get_types():
-    return [p["type"] for p in positions]
+    return [p["type"] for p in positions if "type" in p]
 
 def get_unique_types():
     return sorted(set(get_types()))
@@ -263,8 +286,9 @@ def plot_points(selected_point_indices):
 
     type_to_indices = {}
     for idx in selected_point_indices:
-        t = positions[idx]["type"]
-        if t in checked_types:
+        p = positions[idx]
+        t = p.get("type")
+        if t is not None and t in checked_types:
             type_to_indices.setdefault(t, []).append(idx)
 
     cone_height = 15
@@ -286,29 +310,23 @@ def plot_points(selected_point_indices):
                 point_actors.append(actor)
             elif p.get("command") == "spawn":
                 # Draw prop as wedge (triangular prism)
-                # Compute orientation from rot_y (yaw), rot_x (pitch), rot_z (roll)
-                yaw = np.deg2rad(p.get("rot_z", 0))                    # Y and Z swapped
-                pitch = np.deg2rad(-p.get("rot_x", 0))                 # X inverted
-                roll = np.deg2rad(p.get("rot_y", 0))                   # Y and Z swapped
-
-                # Local wedge vertices (centered at origin, pointing +Y)
-                # Triangle base at -length/2, rectangle at +length/2
+                yaw = np.deg2rad(p.get("rot_z", 0))
+                pitch = np.deg2rad(-p.get("rot_x", 0))
+                roll = np.deg2rad(p.get("rot_y", 0))
                 v = np.array([
-                    [0, wedge_length/2, 0],  # tip
-                    [-wedge_width/2, -wedge_length/2, -wedge_height/2],  # base left bottom
-                    [wedge_width/2, -wedge_length/2, -wedge_height/2],   # base right bottom
-                    [wedge_width/2, -wedge_length/2, wedge_height/2],    # base right top
-                    [-wedge_width/2, -wedge_length/2, wedge_height/2],   # base left top
+                    [0, wedge_length/2, 0],
+                    [-wedge_width/2, -wedge_length/2, -wedge_height/2],
+                    [wedge_width/2, -wedge_length/2, -wedge_height/2],
+                    [wedge_width/2, -wedge_length/2, wedge_height/2],
+                    [-wedge_width/2, -wedge_length/2, wedge_height/2],
                 ])
-                # Faces: tip, base, sides
                 faces = [
-                    3, 0, 1, 2,  # bottom triangle
-                    3, 0, 2, 3,  # right triangle
-                    3, 0, 3, 4,  # top triangle
-                    3, 0, 4, 1,  # left triangle
-                    4, 1, 2, 3, 4  # base quad
+                    3, 0, 1, 2,
+                    3, 0, 2, 3,
+                    3, 0, 3, 4,
+                    3, 0, 4, 1,
+                    4, 1, 2, 3, 4
                 ]
-                # Rotation matrix: R = Rz(roll) @ Rx(pitch) @ Ry(yaw)
                 def rotmat(yaw, pitch, roll):
                     cy, sy = np.cos(yaw), np.sin(yaw)
                     cp, sp = np.cos(pitch), np.sin(pitch)
@@ -323,11 +341,7 @@ def plot_points(selected_point_indices):
                 wedge = pv.PolyData(v_final, faces)
                 actor = plotter.add_mesh(wedge, color=type_colors[t], name=f"point_{idx}")
                 point_actors.append(actor)
-            else:
-                # fallback: draw a small sphere
-                sphere = pv.Sphere(radius=3, center=pos)
-                actor = plotter.add_mesh(sphere, color=type_colors[t], name=f"point_{idx}")
-                point_actors.append(actor)
+            # Do not plot anything for "raw" commands
 
     if orientation_marker_visible and len(xs) > 0:
         min_x, min_y, min_z = xs.min(), ys.min(), zs.min()
@@ -403,34 +417,40 @@ class PointEditDialog(QDialog):
 
         unique_types = get_unique_types()
 
-        self.type_edit = QComboBox()
-        self.type_edit.setEditable(True)
-        self.type_edit.addItems(unique_types)
-        self.type_edit.setCurrentText(point["type"])
-        layout.addRow("Type", self.type_edit)
+        # --- If unknown command, show raw line for editing ---
+        is_raw = point.get("command") == "raw"
+        if is_raw:
+            self.raw_edit = QLineEdit(point.get("raw_line", ""))
+            layout.addRow("Raw Command", self.raw_edit)
+        else:
+            self.type_edit = QComboBox()
+            self.type_edit.setEditable(True)
+            self.type_edit.addItems(unique_types)
+            self.type_edit.setCurrentText(point["type"])
+            layout.addRow("Type", self.type_edit)
 
-        self.x_edit = QLineEdit(str(point["roblox_x"]))
-        layout.addRow("X", self.x_edit)
-        self.y_edit = QLineEdit(str(point["roblox_y"]))
-        layout.addRow("Y", self.y_edit)
-        self.z_edit = QLineEdit(str(point["roblox_z"]))
-        layout.addRow("Z", self.z_edit)
+            self.x_edit = QLineEdit(str(point["roblox_x"]))
+            layout.addRow("X", self.x_edit)
+            self.y_edit = QLineEdit(str(point["roblox_y"]))
+            layout.addRow("Y", self.y_edit)
+            self.z_edit = QLineEdit(str(point["roblox_z"]))
+            layout.addRow("Z", self.z_edit)
 
-        self.orientation_edit = None
-        self.rot_x_edit = None
-        self.rot_y_edit = None
-        self.rot_z_edit = None
+            self.orientation_edit = None
+            self.rot_x_edit = None
+            self.rot_y_edit = None
+            self.rot_z_edit = None
 
-        if point.get("command") == "bot spawn" or ("orientation" in point and "rot_x" not in point):
-            self.orientation_edit = QLineEdit(str(point.get("orientation", 0)))
-            layout.addRow("Orientation", self.orientation_edit)
-        elif point.get("command") == "spawn" or ("rot_x" in point):
-            self.rot_x_edit = QLineEdit(str(point.get("rot_x", 0)))
-            self.rot_y_edit = QLineEdit(str(point.get("rot_y", 0)))
-            self.rot_z_edit = QLineEdit(str(point.get("rot_z", 0)))
-            layout.addRow("Rot X", self.rot_x_edit)
-            layout.addRow("Rot Y", self.rot_y_edit)
-            layout.addRow("Rot Z", self.rot_z_edit)
+            if point.get("command") == "bot spawn" or ("orientation" in point and "rot_x" not in point):
+                self.orientation_edit = QLineEdit(str(point.get("orientation", 0)))
+                layout.addRow("Orientation", self.orientation_edit)
+            elif point.get("command") == "spawn" or ("rot_x" in point):
+                self.rot_x_edit = QLineEdit(str(point.get("rot_x", 0)))
+                self.rot_y_edit = QLineEdit(str(point.get("rot_y", 0)))
+                self.rot_z_edit = QLineEdit(str(point.get("rot_z", 0)))
+                layout.addRow("Rot X", self.rot_x_edit)
+                layout.addRow("Rot Y", self.rot_y_edit)
+                layout.addRow("Rot Z", self.rot_z_edit)
 
         self.path_edit = QLineEdit(point.get("path", ""))
         layout.addRow("Path", self.path_edit)
@@ -448,25 +468,54 @@ class PointEditDialog(QDialog):
         preview_btn = QPushButton("Preview")
         stop_preview_btn = QPushButton("Stop Preview")
         self.stop_preview_btn = stop_preview_btn
-        btn_layout.addWidget(goto_btn)
-        btn_layout.addWidget(focal_btn)
+
+        # Provide missing methods as no-ops if not present (always define before connecting)
+        def copy_line_to_clipboard():
+            point = self.get_values()
+            if point.get("command") == "bot spawn":
+                line = f"bot spawn 1 {point['type']} {point['roblox_x']} {point['roblox_y']} {point['roblox_z']} {point.get('orientation', 0)}"
+            elif point.get("command") == "spawn":
+                line = f"spawn 1 {point['type']} {point['roblox_x']} {point['roblox_y']} {point['roblox_z']} {point.get('rot_x', 0)} {point.get('rot_y', 0)} {point.get('rot_z', 0)}"
+            elif point.get("command") == "raw":
+                line = point.get("raw_line", "")
+            else:
+                line = ""
+            clipboard = QApplication.clipboard()
+            clipboard.setText(line)
+            QMessageBox.information(self, "Copied", "Point line copied to clipboard.")
+        self.copy_line_to_clipboard = copy_line_to_clipboard
+
+        def copy_coords_to_clipboard():
+            point = self.get_values()
+            if all(k in point for k in ("roblox_x", "roblox_y", "roblox_z")):
+                coords = f"{point['roblox_x']} {point['roblox_y']} {point['roblox_z']}"
+                clipboard = QApplication.clipboard()
+                clipboard.setText(coords)
+                QMessageBox.information(self, "Copied", "Coordinates copied to clipboard.")
+        self.copy_coords_to_clipboard = copy_coords_to_clipboard
+
+        # Only show these buttons if not editing a raw command
+        if not is_raw:
+            btn_layout.addWidget(goto_btn)
+            btn_layout.addWidget(focal_btn)
+            btn_layout.addWidget(copy_coords_btn)
+            btn_layout.addWidget(preview_btn)
+            btn_layout.addWidget(stop_preview_btn)
         btn_layout.addWidget(copy_line_btn)
-        btn_layout.addWidget(copy_coords_btn)
         btn_layout.addWidget(move_up_btn)
         btn_layout.addWidget(move_down_btn)
-        btn_layout.addWidget(preview_btn)
-        btn_layout.addWidget(stop_preview_btn)
         layout.addRow(btn_layout)
 
-        goto_btn.clicked.connect(self.goto_point)
-        focal_btn.clicked.connect(self.set_focal)
+        # Use callbacks instead of missing methods
+        if not is_raw:
+            goto_btn.clicked.connect(lambda: self.goto_point_callback(self.get_values()) if self.goto_point_callback else None)
+            focal_btn.clicked.connect(lambda: self.set_focal_callback(self.get_values()) if self.set_focal_callback else None)
+            copy_coords_btn.clicked.connect(self.copy_coords_to_clipboard)
+            preview_btn.clicked.connect(lambda: self.preview_callback(self.get_values()) if self.preview_callback else None)
+            stop_preview_btn.clicked.connect(lambda: self.parent().stop_preview(self.get_values()) if hasattr(self.parent(), "stop_preview") else None)
         copy_line_btn.clicked.connect(self.copy_line_to_clipboard)
-        copy_coords_btn.clicked.connect(self.copy_coords_to_clipboard)
         move_up_btn.clicked.connect(lambda: self.move_point(-1))
         move_down_btn.clicked.connect(lambda: self.move_point(1))
-        preview_btn.clicked.connect(self.preview)
-        stop_preview_btn.clicked.connect(self.stop_preview)
-
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -479,6 +528,13 @@ class PointEditDialog(QDialog):
         self._previewing = False
 
     def get_values(self):
+        if hasattr(self, "raw_edit"):
+            return {
+                "command": "raw",
+                "raw_line": self.raw_edit.text(),
+                "path": self.path_edit.text(),
+                "order": int(self.order_edit.text())
+            }
         base = {
             "type": self.type_edit.currentText(),
             "roblox_x": float(self.x_edit.text()),
@@ -487,80 +543,15 @@ class PointEditDialog(QDialog):
             "path": self.path_edit.text(),
             "order": int(self.order_edit.text())
         }
-        if self.orientation_edit is not None:
+        if getattr(self, "orientation_edit", None) is not None:
             base["orientation"] = float(self.orientation_edit.text())
             base["command"] = "bot spawn"
-        elif self.rot_x_edit is not None:
+        elif getattr(self, "rot_x_edit", None) is not None:
             base["rot_x"] = float(self.rot_x_edit.text())
             base["rot_y"] = float(self.rot_y_edit.text())
             base["rot_z"] = float(self.rot_z_edit.text())
             base["command"] = "spawn"
         return base
-
-    def goto_point(self):
-        if self.goto_point_callback:
-            self.goto_point_callback(self.get_values())
-
-    def set_focal(self):
-        if self.set_focal_callback:
-            self.set_focal_callback(self.get_values())
-
-    def preview(self):
-        if self.preview_callback:
-            self.preview_callback(self.get_values())
-        if self.highlight_callback:
-            self.highlight_callback(self.get_values())
-        self._previewing = True
-
-    def stop_preview(self):
-        if self.preview_callback:
-            self.preview_callback(self._original_values)
-        if self.highlight_callback:
-            self.highlight_callback(self._original_values)
-        self._previewing = False
-
-    def copy_line_to_clipboard(self):
-        point = self.get_values()
-        if point.get("command") == "bot spawn":
-            line = f"bot spawn 1 {point['type']} {point['roblox_x']} {point['roblox_y']} {point['roblox_z']} {point.get('orientation', 0)}"
-        elif point.get("command") == "spawn":
-            line = f"spawn 1 {point['type']} {point['roblox_x']} {point['roblox_y']} {point['roblox_z']} {point.get('rot_x', 0)} {point.get('rot_y', 0)} {point.get('rot_z', 0)}"
-        else:
-            line = ""
-        clipboard = QApplication.clipboard()
-        clipboard.setText(line)
-        QMessageBox.information(self, "Copied", "Point line copied to clipboard.")
-
-    def copy_coords_to_clipboard(self):
-        point = self.get_values()
-        coords = json.dumps([point['roblox_x'], point['roblox_y'], point['roblox_z']])
-        clipboard = QApplication.clipboard()
-        clipboard.setText(coords)
-        QMessageBox.information(self, "Copied", "Coordinates copied to clipboard (camera paste compatible).")
-
-    def move_point(self, direction):
-        if self._point_idx is None:
-            return
-        current = positions[self._point_idx]
-        folder = current.get("path", "")
-        same_folder = [i for i, p in enumerate(positions) if p.get("path", "") == folder]
-        same_folder_sorted = sorted(same_folder, key=lambda idx: positions[idx]["order"])
-        idx_in_folder = next((i for i, idx in enumerate(same_folder_sorted) if idx == self._point_idx), None)
-        if idx_in_folder is None:
-            return
-        swap_with = idx_in_folder + direction
-        if 0 <= swap_with < len(same_folder_sorted):
-            idx_a = same_folder_sorted[idx_in_folder]
-            idx_b = same_folder_sorted[swap_with]
-            positions[idx_a]["order"], positions[idx_b]["order"] = positions[idx_b]["order"], positions[idx_a]["order"]
-            save_positions_to_file(DATA_FILENAME)
-            if self.parent() and hasattr(self.parent(), "reload_positions"):
-                self.parent().reload_positions()
-            self.order_edit.setText(str(positions[self._point_idx]["order"]))
-
-    def reject(self):
-        self.stop_preview()
-        super().reject()
 
 def update_point_in_file(point_idx, new_point, filename=DATA_FILENAME):
     positions[point_idx].update(new_point)
@@ -822,12 +813,15 @@ class ControlPanel(QWidget):
         item = selected_items[0]
         point_idx = item.data(0, Qt.UserRole)
         if point_idx is not None:
-            transformed_positions = get_transformed_positions()
-            pt = transformed_positions[point_idx:point_idx + 1]
-            self.highlight_actor = plotter.add_points(
-                pt, color='magenta', point_size=25, render_points_as_spheres=True
-            )
-            plotter.render()
+            point = positions[point_idx]
+            # Only show preview dot if this is not a raw/plaintext command
+            if point.get("command") != "raw":
+                transformed_positions = get_transformed_positions()
+                pt = transformed_positions[point_idx:point_idx + 1]
+                self.highlight_actor = plotter.add_points(
+                    pt, color='magenta', point_size=25, render_points_as_spheres=True
+                )
+                plotter.render()
 
     def on_tree_item_double_clicked(self, item, column):
         point_idx = item.data(0, Qt.UserRole)
@@ -878,14 +872,15 @@ class ControlPanel(QWidget):
         self.area_tree.blockSignals(False)
         self.update_plot()
 
-    def add_npcs_from_clipboard(self):
+    def paste_commands_from_clipboard(self):
         clipboard = QApplication.clipboard()
         text = clipboard.text()
         new_points = []
         root_order = sum(1 for p in positions if p.get("path", "") == "")
         for i, line in enumerate(text.splitlines()):
             line = line.strip()
-            # Support both NPCs and props
+            if not line:
+                continue
             if line.startswith("bot spawn"):
                 m = re.match(r"bot spawn \d+ (\S+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+)(?: ([\-\d\.]+))?", line)
                 if m:
@@ -904,6 +899,7 @@ class ControlPanel(QWidget):
                         "path": "",
                         "order": root_order + len(new_points)
                     })
+                    continue
             elif line.startswith("spawn"):
                 m = re.match(r"spawn \d+ (\S+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+)", line)
                 if m:
@@ -926,8 +922,16 @@ class ControlPanel(QWidget):
                         "path": "",
                         "order": root_order + len(new_points)
                     })
+                    continue
+            # If not recognized, treat as raw/plaintext command
+            new_points.append({
+                "command": "raw",
+                "raw_line": line,
+                "path": "",
+                "order": root_order + len(new_points)
+            })
         if not new_points:
-            QMessageBox.warning(self, "No Points Found", "Clipboard does not contain valid NPC or prop lines.")
+            QMessageBox.warning(self, "No Commands Found", "Clipboard does not contain valid commands.")
             return
         with open(self.current_map_file, "a", encoding="utf-8") as f:
             for p in new_points:
@@ -935,6 +939,8 @@ class ControlPanel(QWidget):
                     line = f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p['orientation']}\n"
                 elif p.get("command") == "spawn":
                     line = f"spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p['rot_x']} {p['rot_y']} {p['rot_z']}\n"
+                elif p.get("command") == "raw":
+                    line = p.get("raw_line", "") + "\n"
                 else:
                     continue
                 f.write(line)
@@ -942,7 +948,7 @@ class ControlPanel(QWidget):
         folder_paths = self.get_all_folder_paths()
         save_positions_to_file(self.current_map_file, folder_paths=folder_paths)
         self.reload_positions()
-        QMessageBox.information(self, "Points Added", f"Added {len(new_points)} points from clipboard.")
+        QMessageBox.information(self, "Commands Added", f"Added {len(new_points)} command(s) from clipboard.")
 
     def reload_positions(self):
         tree_state = self.get_tree_state()
@@ -1120,8 +1126,8 @@ class ControlPanel(QWidget):
         copy_selection_btn.clicked.connect(self.copy_selection_to_clipboard)
         load_selection_btn = QPushButton("Load Selection From Clipboard")
         load_selection_btn.clicked.connect(self.load_selection_from_clipboard)
-        add_npcs_btn = QPushButton("Add NPCs From Clipboard")
-        add_npcs_btn.clicked.connect(self.add_npcs_from_clipboard)
+        add_npcs_btn = QPushButton("Paste Commands")
+        add_npcs_btn.clicked.connect(self.paste_commands_from_clipboard)
         open_file_btn = QPushButton("Open Game File")
         open_file_btn.clicked.connect(self.open_other_file)
         copy_visible_btn = QPushButton("Copy Visible Points To Clipboard")
