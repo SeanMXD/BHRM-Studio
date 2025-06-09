@@ -986,6 +986,7 @@ class ControlPanel(QWidget):
         fname, _ = QFileDialog.getSaveFileName(self, "Save Workspace", "", "Workspace Files (*.json);;All Files (*)")
         if not fname:
             return
+        self.workspace_loaded_path = fname  # <-- Add this line
         cam = self.plotter.camera
         abs_map = os.path.abspath(self.current_map_file)
         selection = self.get_current_selection_indices()
@@ -1035,7 +1036,8 @@ class ControlPanel(QWidget):
 
     def save_workspace_to_loaded_path(self):
         if not self.workspace_loaded_path:
-            QMessageBox.warning(self, "No Workspace", "No workspace file loaded.")
+            # Try to prompt for a file if not set, instead of just warning
+            self.save_workspace_as_file()
             return
         cam = self.plotter.camera
         abs_map = os.path.abspath(self.current_map_file)
@@ -1671,6 +1673,7 @@ if __name__ == "__main__":
         panel.marker_move_y.setText(str(orientation_marker_offset[1]))
         panel.marker_move_z.setText(str(orientation_marker_offset[2]))
         panel.update_plot()
+        panel.workspace_loaded_path = workspace_path  # <-- Add this line
 
     panel.show()
     app.exec()
