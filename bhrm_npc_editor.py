@@ -1,32 +1,7 @@
-# To run this script, install the required packages with:
-# pip install pyvista pyvistaqt numpy matplotlib PySide6
-
-# =============================================================================
-# Black Hawk Rescue Mission NPC Point Visualizer & Editor
-#
-# Features:
-# - Loads NPC spawn points from a text file (default: bot_spawn_commands.txt).
-# - 3D visualization of all NPC points using PyVista.
-# - Color-coded by NPC type, with a clean legend (one entry per type).
-# - Tree-based organization by path (folders).
-# - Select/deselect points or groups in the tree to control visibility.
-# - Double-click a point in the tree or 3D view to edit its properties.
-# - Live preview of edits in the 3D view.
-# - Camera controls: view/edit/copy/paste camera position, focal point, and up vector.
-# - Orientation marker (UP/NORTH) can be moved, hidden, shown, and is saved to workspace.
-# - Copy selected commands to clipboard.
-# - Add NPCs from clipboard (they are appended at the end, with no path).
-# - Open/select/load other NPC map files.
-# - Save/load workspace files (.json) that store:
-#     - Absolute map file path
-#     - Camera position, focal point, and up vector
-#     - Current selection
-#     - Orientation marker visibility and offset
-# - All edits are reflected in the visualization and saved back to the text file.
-# - "Save Workspace" button is always visible.
-# - On startup, loads workspace.json if it exists.
-# =============================================================================
-
+"""
+BHRM Studio
+See README.md for full documentation and usage.
+"""
 import re
 import numpy as np
 import pyvista as pv

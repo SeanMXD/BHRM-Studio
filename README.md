@@ -1,4 +1,4 @@
-# Black Hawk Rescue Mission NPC Point Visualizer & Editor
+# BHRM Studio
 
 ## Purpose
 Visualizes and edits NPC spawn points for a Roblox game, using a 3D PyVista window and a Qt-based GUI.
