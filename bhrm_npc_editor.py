@@ -1412,6 +1412,14 @@ class DeletableTreeWidget(QTreeWidget):
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Delete, Qt.Key_Backspace):
             self.parent_panel.delete_selected_points()
+        elif event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            # Open point editor if a point is selected
+            selected_items = self.selectedItems()
+            if selected_items:
+                item = selected_items[0]
+                idx = item.data(0, Qt.UserRole)
+                if idx is not None:
+                    self.parent_panel.open_point_details_popup(idx)
         else:
             super().keyPressEvent(event)
 
