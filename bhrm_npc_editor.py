@@ -438,13 +438,13 @@ class PointEditDialog(QDialog):
         focal_btn = QPushButton("Set Focal Here")
         copy_line_btn = QPushButton("Copy Line")
         copy_coords_btn = QPushButton("Copy Coordinates")
+        paste_coords_btn = QPushButton("Paste Coordinates")  # <-- New button
         move_up_btn = QPushButton("Move Up")
         move_down_btn = QPushButton("Move Down")
         preview_btn = QPushButton("Preview")
         stop_preview_btn = QPushButton("Stop Preview")
         self.stop_preview_btn = stop_preview_btn
 
-        # Provide missing methods as no-ops if not present (always define before connecting)
         def copy_line_to_clipboard():
             point = self.get_values()
             if point.get("command") == "bot spawn":
@@ -469,11 +469,26 @@ class PointEditDialog(QDialog):
                 QMessageBox.information(self, "Copied", "Coordinates copied to clipboard.")
         self.copy_coords_to_clipboard = copy_coords_to_clipboard
 
+        def paste_coords_from_clipboard():
+            clipboard = QApplication.clipboard()
+            text = clipboard.text()
+            try:
+                parts = [float(x) for x in text.strip().replace(",", " ").split()]
+                if len(parts) != 3:
+                    raise ValueError
+                self.x_edit.setText(str(parts[0]))
+                self.y_edit.setText(str(parts[1]))
+                self.z_edit.setText(str(parts[2]))
+            except Exception:
+                QMessageBox.warning(self, "Paste Failed", "Clipboard must contain three numbers (X Y Z) separated by spaces or commas.")
+        self.paste_coords_from_clipboard = paste_coords_from_clipboard
+
         # Only show these buttons if not editing a raw command
         if not is_raw:
             btn_layout.addWidget(goto_btn)
             btn_layout.addWidget(focal_btn)
             btn_layout.addWidget(copy_coords_btn)
+            btn_layout.addWidget(paste_coords_btn)  # <-- Add to layout
             btn_layout.addWidget(preview_btn)
             btn_layout.addWidget(stop_preview_btn)
         btn_layout.addWidget(copy_line_btn)
@@ -486,6 +501,7 @@ class PointEditDialog(QDialog):
             goto_btn.clicked.connect(lambda: self.goto_point_callback(self.get_values()) if self.goto_point_callback else None)
             focal_btn.clicked.connect(lambda: self.set_focal_callback(self.get_values()) if self.set_focal_callback else None)
             copy_coords_btn.clicked.connect(self.copy_coords_to_clipboard)
+            paste_coords_btn.clicked.connect(self.paste_coords_from_clipboard)  # <-- Connect slot
             preview_btn.clicked.connect(lambda: self.preview_callback(self.get_values()) if self.preview_callback else None)
             stop_preview_btn.clicked.connect(lambda: self.parent().stop_preview(self.get_values()) if hasattr(self.parent(), "stop_preview") else None)
         copy_line_btn.clicked.connect(self.copy_line_to_clipboard)
