@@ -83,7 +83,12 @@ def save_positions_to_file(filename, folder_paths=None):
             for i in range(common, len(path_parts)):
                 f.write("#" * (i + 1) + " " + path_parts[i] + "\n")
             last_path = path_parts
-            line = f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p['orientation']}\n"
+            if p.get("command") == "bot spawn":
+                line = f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p.get('orientation', 0)}\n"
+            elif p.get("command") == "spawn":
+                line = f"spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p.get('rot_x', 0)} {p.get('rot_y', 0)} {p.get('rot_z', 0)}\n"
+            else:
+                continue
             f.write(line)
 
 def parse_bot_file(filename):
@@ -104,30 +109,63 @@ def parse_bot_file(filename):
                 folder_stack = folder_stack[:level-1]
                 folder_stack.append(name)
                 continue
-            if line.startswith("bot spawn"):
-                m = re.match(r"bot spawn \d+ (\S+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+)(?: ([\-\d\.]+))?", line)
-                if m:
-                    bot_type = m.group(1)
-                    roblox_x = float(m.group(2))
-                    roblox_y = float(m.group(3))
-                    roblox_z = float(m.group(4))
-                    orientation = float(m.group(5)) if m.lastindex >= 5 and m.group(5) else 0
-                    path = "/".join(folder_stack)
-                    order = folder_counters.get(path, 0)
-                    folder_counters[path] = order + 1
-                    positions.append({
-                        "type": bot_type,
-                        "roblox_x": roblox_x,
-                        "roblox_y": roblox_y,
-                        "roblox_z": roblox_z,
-                        "orientation": orientation,
-                        "path": path,
-                        "order": order
-                    })
+            m_bot = re.match(r"bot spawn \d+ (\S+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+)(?: ([\-\d\.]+))?", line)
+            if m_bot:
+                bot_type = m_bot.group(1)
+                roblox_x = float(m_bot.group(2))
+                roblox_y = float(m_bot.group(3))
+                roblox_z = float(m_bot.group(4))
+                orientation = float(m_bot.group(5)) if m_bot.lastindex >= 5 and m_bot.group(5) else 0
+                path = "/".join(folder_stack)
+                order = folder_counters.get(path, 0)
+                folder_counters[path] = order + 1
+                positions.append({
+                    "command": "bot spawn",
+                    "type": bot_type,
+                    "roblox_x": roblox_x,
+                    "roblox_y": roblox_y,
+                    "roblox_z": roblox_z,
+                    "orientation": orientation,
+                    "path": path,
+                    "order": order
+                })
+                continue
+            m_prop = re.match(r"spawn \d+ (\S+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+)", line)
+            if m_prop:
+                prop_type = m_prop.group(1)
+                roblox_x = float(m_prop.group(2))
+                roblox_y = float(m_prop.group(3))
+                roblox_z = float(m_prop.group(4))
+                rot_x = float(m_prop.group(5))
+                rot_y = float(m_prop.group(6))
+                rot_z = float(m_prop.group(7))
+                path = "/".join(folder_stack)
+                order = folder_counters.get(path, 0)
+                folder_counters[path] = order + 1
+                positions.append({
+                    "command": "spawn",
+                    "type": prop_type,
+                    "roblox_x": roblox_x,
+                    "roblox_y": roblox_y,
+                    "roblox_z": roblox_z,
+                    "rot_x": rot_x,
+                    "rot_y": rot_y,
+                    "rot_z": rot_z,
+                    "path": path,
+                    "order": order
+                })
     return positions
 
 def orientation_to_vector(orientation_deg):
     angle_rad = np.deg2rad(orientation_deg)
+    return np.array([
+        np.sin(angle_rad),
+        -np.cos(angle_rad),
+        0
+    ])
+
+def prop_rot_to_vector(rot_x, rot_y, rot_z):
+    angle_rad = np.deg2rad(rot_y)
     return np.array([
         np.sin(angle_rad),
         -np.cos(angle_rad),
@@ -231,15 +269,65 @@ def plot_points(selected_point_indices):
 
     cone_height = 15
     cone_radius = 4
+    wedge_length = 15
+    wedge_width = 8
+    wedge_height = 6
+
     for t, indices in type_to_indices.items():
         for idx in indices:
             p = positions[idx]
             pos = transformed_positions[idx]
-            orientation = float(p.get("orientation", 0))
-            direction = orientation_to_vector(orientation)
-            cone = pv.Cone(center=pos, direction=direction, height=cone_height, radius=cone_radius, resolution=24)
-            actor = plotter.add_mesh(cone, color=type_colors[t], name=f"point_{idx}")
-            point_actors.append(actor)
+            if p.get("command") == "bot spawn":
+                orientation = float(p.get("orientation", 0))
+                direction = orientation_to_vector(orientation)
+                # Draw NPC as cone
+                cone = pv.Cone(center=pos, direction=direction, height=cone_height, radius=cone_radius, resolution=24)
+                actor = plotter.add_mesh(cone, color=type_colors[t], name=f"point_{idx}")
+                point_actors.append(actor)
+            elif p.get("command") == "spawn":
+                # Draw prop as wedge (triangular prism)
+                # Compute orientation from rot_y (yaw), rot_x (pitch), rot_z (roll)
+                yaw = np.deg2rad(p.get("rot_z", 0))                    # Y and Z swapped
+                pitch = np.deg2rad(-p.get("rot_x", 0))                 # X inverted
+                roll = np.deg2rad(p.get("rot_y", 0))                   # Y and Z swapped
+
+                # Local wedge vertices (centered at origin, pointing +Y)
+                # Triangle base at -length/2, rectangle at +length/2
+                v = np.array([
+                    [0, wedge_length/2, 0],  # tip
+                    [-wedge_width/2, -wedge_length/2, -wedge_height/2],  # base left bottom
+                    [wedge_width/2, -wedge_length/2, -wedge_height/2],   # base right bottom
+                    [wedge_width/2, -wedge_length/2, wedge_height/2],    # base right top
+                    [-wedge_width/2, -wedge_length/2, wedge_height/2],   # base left top
+                ])
+                # Faces: tip, base, sides
+                faces = [
+                    3, 0, 1, 2,  # bottom triangle
+                    3, 0, 2, 3,  # right triangle
+                    3, 0, 3, 4,  # top triangle
+                    3, 0, 4, 1,  # left triangle
+                    4, 1, 2, 3, 4  # base quad
+                ]
+                # Rotation matrix: R = Rz(roll) @ Rx(pitch) @ Ry(yaw)
+                def rotmat(yaw, pitch, roll):
+                    cy, sy = np.cos(yaw), np.sin(yaw)
+                    cp, sp = np.cos(pitch), np.sin(pitch)
+                    cr, sr = np.cos(roll), np.sin(roll)
+                    Ry = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
+                    Rx = np.array([[1, 0, 0], [0, cp, -sp], [0, sp, cp]])
+                    Rz = np.array([[cr, -sr, 0], [sr, cr, 0], [0, 0, 1]])
+                    return Rz @ Rx @ Ry
+                R = rotmat(yaw, pitch, roll)
+                v_rot = (R @ v.T).T
+                v_final = v_rot + pos
+                wedge = pv.PolyData(v_final, faces)
+                actor = plotter.add_mesh(wedge, color=type_colors[t], name=f"point_{idx}")
+                point_actors.append(actor)
+            else:
+                # fallback: draw a small sphere
+                sphere = pv.Sphere(radius=3, center=pos)
+                actor = plotter.add_mesh(sphere, color=type_colors[t], name=f"point_{idx}")
+                point_actors.append(actor)
 
     if orientation_marker_visible and len(xs) > 0:
         min_x, min_y, min_z = xs.min(), ys.min(), zs.min()
@@ -327,8 +415,22 @@ class PointEditDialog(QDialog):
         layout.addRow("Y", self.y_edit)
         self.z_edit = QLineEdit(str(point["roblox_z"]))
         layout.addRow("Z", self.z_edit)
-        self.orientation_edit = QLineEdit(str(point.get("orientation", 0)))
-        layout.addRow("Orientation", self.orientation_edit)
+
+        self.orientation_edit = None
+        self.rot_x_edit = None
+        self.rot_y_edit = None
+        self.rot_z_edit = None
+
+        if point.get("command") == "bot spawn" or ("orientation" in point and "rot_x" not in point):
+            self.orientation_edit = QLineEdit(str(point.get("orientation", 0)))
+            layout.addRow("Orientation", self.orientation_edit)
+        elif point.get("command") == "spawn" or ("rot_x" in point):
+            self.rot_x_edit = QLineEdit(str(point.get("rot_x", 0)))
+            self.rot_y_edit = QLineEdit(str(point.get("rot_y", 0)))
+            self.rot_z_edit = QLineEdit(str(point.get("rot_z", 0)))
+            layout.addRow("Rot X", self.rot_x_edit)
+            layout.addRow("Rot Y", self.rot_y_edit)
+            layout.addRow("Rot Z", self.rot_z_edit)
 
         self.path_edit = QLineEdit(point.get("path", ""))
         layout.addRow("Path", self.path_edit)
@@ -377,15 +479,23 @@ class PointEditDialog(QDialog):
         self._previewing = False
 
     def get_values(self):
-        return {
+        base = {
             "type": self.type_edit.currentText(),
             "roblox_x": float(self.x_edit.text()),
             "roblox_y": float(self.y_edit.text()),
             "roblox_z": float(self.z_edit.text()),
-            "orientation": float(self.orientation_edit.text()),
             "path": self.path_edit.text(),
             "order": int(self.order_edit.text())
         }
+        if self.orientation_edit is not None:
+            base["orientation"] = float(self.orientation_edit.text())
+            base["command"] = "bot spawn"
+        elif self.rot_x_edit is not None:
+            base["rot_x"] = float(self.rot_x_edit.text())
+            base["rot_y"] = float(self.rot_y_edit.text())
+            base["rot_z"] = float(self.rot_z_edit.text())
+            base["command"] = "spawn"
+        return base
 
     def goto_point(self):
         if self.goto_point_callback:
@@ -411,7 +521,12 @@ class PointEditDialog(QDialog):
 
     def copy_line_to_clipboard(self):
         point = self.get_values()
-        line = f"bot spawn 1 {point['type']} {point['roblox_x']} {point['roblox_y']} {point['roblox_z']} {point['orientation']}"
+        if point.get("command") == "bot spawn":
+            line = f"bot spawn 1 {point['type']} {point['roblox_x']} {point['roblox_y']} {point['roblox_z']} {point.get('orientation', 0)}"
+        elif point.get("command") == "spawn":
+            line = f"spawn 1 {point['type']} {point['roblox_x']} {point['roblox_y']} {point['roblox_z']} {point.get('rot_x', 0)} {point.get('rot_y', 0)} {point.get('rot_z', 0)}"
+        else:
+            line = ""
         clipboard = QApplication.clipboard()
         clipboard.setText(line)
         QMessageBox.information(self, "Copied", "Point line copied to clipboard.")
@@ -770,6 +885,7 @@ class ControlPanel(QWidget):
         root_order = sum(1 for p in positions if p.get("path", "") == "")
         for i, line in enumerate(text.splitlines()):
             line = line.strip()
+            # Support both NPCs and props
             if line.startswith("bot spawn"):
                 m = re.match(r"bot spawn \d+ (\S+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+)(?: ([\-\d\.]+))?", line)
                 if m:
@@ -779,26 +895,54 @@ class ControlPanel(QWidget):
                     roblox_z = float(m.group(4))
                     orientation = float(m.group(5)) if m.lastindex >= 5 and m.group(5) else 0
                     new_points.append({
+                        "command": "bot spawn",
                         "type": bot_type,
                         "roblox_x": roblox_x,
                         "roblox_y": roblox_y,
                         "roblox_z": roblox_z,
                         "orientation": orientation,
                         "path": "",
-                        "order": root_order + i
+                        "order": root_order + len(new_points)
+                    })
+            elif line.startswith("spawn"):
+                m = re.match(r"spawn \d+ (\S+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+) ([\-\d\.]+)", line)
+                if m:
+                    prop_type = m.group(1)
+                    roblox_x = float(m.group(2))
+                    roblox_y = float(m.group(3))
+                    roblox_z = float(m.group(4))
+                    rot_x = float(m.group(5))
+                    rot_y = float(m.group(6))
+                    rot_z = float(m.group(7))
+                    new_points.append({
+                        "command": "spawn",
+                        "type": prop_type,
+                        "roblox_x": roblox_x,
+                        "roblox_y": roblox_y,
+                        "roblox_z": roblox_z,
+                        "rot_x": rot_x,
+                        "rot_y": rot_y,
+                        "rot_z": rot_z,
+                        "path": "",
+                        "order": root_order + len(new_points)
                     })
         if not new_points:
-            QMessageBox.warning(self, "No NPCs Found", "Clipboard does not contain valid NPC lines.")
+            QMessageBox.warning(self, "No Points Found", "Clipboard does not contain valid NPC or prop lines.")
             return
         with open(self.current_map_file, "a", encoding="utf-8") as f:
             for p in new_points:
-                line = f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p['orientation']}\n"
+                if p.get("command") == "bot spawn":
+                    line = f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p['orientation']}\n"
+                elif p.get("command") == "spawn":
+                    line = f"spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p['rot_x']} {p['rot_y']} {p['rot_z']}\n"
+                else:
+                    continue
                 f.write(line)
         positions.extend(new_points)
         folder_paths = self.get_all_folder_paths()
         save_positions_to_file(self.current_map_file, folder_paths=folder_paths)
         self.reload_positions()
-        QMessageBox.information(self, "NPCs Added", f"Added {len(new_points)} NPCs from clipboard.")
+        QMessageBox.information(self, "Points Added", f"Added {len(new_points)} points from clipboard.")
 
     def reload_positions(self):
         tree_state = self.get_tree_state()
