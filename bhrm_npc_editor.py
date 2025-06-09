@@ -14,7 +14,7 @@
 # - Live preview of edits in the 3D view.
 # - Camera controls: view/edit/copy/paste camera position, focal point, and up vector.
 # - Orientation marker (UP/NORTH) can be moved, hidden, shown, and is saved to workspace.
-# - Copy visible or selected points to clipboard.
+# - Copy selected commands to clipboard.
 # - Add NPCs from clipboard (they are appended at the end, with no path).
 # - Open/select/load other NPC map files.
 # - Save/load workspace files (.json) that store:
@@ -1130,7 +1130,7 @@ class ControlPanel(QWidget):
         add_npcs_btn.clicked.connect(self.paste_commands_from_clipboard)
         open_file_btn = QPushButton("Open Game File")
         open_file_btn.clicked.connect(self.open_other_file)
-        copy_visible_btn = QPushButton("Copy Visible Points To Clipboard")
+        copy_visible_btn = QPushButton("Copy Selected Commands To Clipboard")
         copy_visible_btn.clicked.connect(self.copy_visible_points_to_clipboard)
 
         ws_btn_group = QGroupBox("Workspace")
