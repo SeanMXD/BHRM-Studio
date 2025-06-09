@@ -75,6 +75,62 @@ Run the editor with:
 You can use PyInstaller to build a standalone executable:
 pyinstaller bhrm_npc_editor.spec
 
+## Project File Overview
+
+### Main Application Files
+
+- **bhrm_npc_editor.py**  
+  The main Python application. Provides a Qt-based GUI and a 3D PyVista visualization for editing and managing NPC spawn points for Black Hawk Rescue Mission. Handles file I/O, workspace management, clipboard operations, and all user interactions.
+
+- **bhrm_npc_editor.spec**  
+  PyInstaller specification file for building a standalone executable of the editor. Lists hidden imports and resources needed for packaging.
+
+- **bot_spawn_commands.txt**  
+  The default text file containing all NPC spawn points and commands. This is the main data file loaded and saved by the editor.
+
+- **README.md**  
+  Project documentation, including features, usage, data model, and developer notes.
+
+- **RBRM5_-_Logo_of_PLATINUM_FIVE.ico**  
+  Application icon used for the executable.
+
+### Automation Scripts
+
+- **bhrm_copy_command.ahk**  
+  AutoHotkey script.  
+  - **Purpose:** When you press `Ctrl+Shift+C`, it copies the line under your mouse cursor in Roblox and pastes it into Notepad (if Notepad is the next window in Alt+Tab order).  
+  - **Usage:** Useful for quickly transferring spawn commands from Roblox to your text file.
+
+- **bhrm_paste_command.ahk**  
+  AutoHotkey script.  
+  - **Purpose:** When you press `Ctrl+Shift+V`, it pastes and presses Enter for each line in your clipboard, one line at a time (useful for pasting multiple commands into Roblox or another app).  
+  - **Escape:** Hold the Enter key to abort/escape the paste loop.
+
+### Build Output
+
+- **/build, /dist**  
+  Output folders created by PyInstaller when building the executable.  
+  - `dist/bhrm_npc_editor.exe`: The compiled standalone application.
+
+### Other Files
+
+- **compile_py.cmd**  
+  Batch script for building the Python application or running PyInstaller.
+
+- **.gitignore**  
+  Git ignore file for excluding build artifacts and other non-source files.
+
+- **workspace.json**  
+  (If present) Stores the last used workspace, including camera, selection, and marker state.
+
 ---
 
-> If you need to remember how to add new point types, change the file format, or extend the GUI, look for the relevant parsing, plotting, and dialog code.
+### **AHK Script Hotkeys Summary**
+
+- **Ctrl+Shift+C**: Copy a line from Roblox under your mouse to Notepad (if Notepad is next in Alt+Tab).
+- **Ctrl+Shift+V**: Paste and press Enter for each line in your clipboard, one at a time.
+- **Escape for paste**: Hold the Enter key to abort the paste loop.
+
+---
+
+> For more details on each file's purpose, see the in-code comments or the README sections above.
