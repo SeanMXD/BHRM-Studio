@@ -757,10 +757,10 @@ class ControlPanel(QWidget):
             item.setCheckState(0, state)
             for i in range(item.childCount()):
                 set_all(item.child(i))
-        for i in range(root.childCount()):
-            set_all(root.child(i))
+        with self.batch_update():
+            for i in range(root.childCount()):
+                set_all(root.child(i))
         self.area_tree.blockSignals(False)
-        self.update_plot()
 
     def on_tree_item_changed(self, item, column):
         # If it's a point, propagate check state up to parents
@@ -882,10 +882,10 @@ class ControlPanel(QWidget):
                 item.setCheckState(0, Qt.Checked if all_checked and item.childCount() > 0 else Qt.Unchecked)
         root = self.area_tree.invisibleRootItem()
         self.area_tree.blockSignals(True)
-        for i in range(root.childCount()):
-            set_checked(root.child(i))
+        with self.batch_update():
+            for i in range(root.childCount()):
+                set_checked(root.child(i))
         self.area_tree.blockSignals(False)
-        self.update_plot()
 
     def paste_commands_from_clipboard(self):
         clipboard = QApplication.clipboard()
@@ -984,8 +984,9 @@ class ControlPanel(QWidget):
     def open_other_file(self):
         global positions
         positions.clear()
-        self.area_tree.clear()
-        self.update_plot()
+        with self.batch_update():
+            self.area_tree.clear()
+            self.update_plot()
         self.select_and_load_file()
             
     def load_map_file(self, fname):
@@ -994,9 +995,9 @@ class ControlPanel(QWidget):
         self.current_map_file = fname
         positions.clear()
         positions.extend(parse_bot_file(fname))
-        self.reload_positions()
-        self.rebuild_type_checkboxes()
-        self.update_plot()
+        with self.batch_update():
+            self.reload_positions()
+            self.rebuild_type_checkboxes()
         QMessageBox.information(self, "Loaded", f"Loaded {len(positions)} points from {os.path.basename(fname)}.")
 
     def save_workspace_as_file(self):
@@ -1414,23 +1415,23 @@ class ControlPanel(QWidget):
         tree_state = self.get_tree_state()
         selected_items = self.area_tree.selectedItems()
         selected_indices = [item.data(0, Qt.UserRole) for item in selected_items if item.data(0, Qt.UserRole) is not None]
-
+    
         QTreeWidget.dropEvent(self.area_tree, event)
         self.update_orders_from_tree()
         folder_paths = self.get_all_folder_paths()
         save_positions_to_file(self.current_map_file, folder_paths=folder_paths)
-        self.reload_positions()
-
-        def select_by_indices(item):
-            point_idx = item.data(0, Qt.UserRole)
-            if point_idx is not None and point_idx in selected_indices:
-                item.setSelected(True)
-            for i in range(item.childCount()):
-                select_by_indices(item.child(i))
-        root = self.area_tree.invisibleRootItem()
-        for i in range(root.childCount()):
-            select_by_indices(root.child(i))
-        self.set_tree_state(tree_state)
+        with self.batch_update():
+            self.reload_positions()
+            def select_by_indices(item):
+                point_idx = item.data(0, Qt.UserRole)
+                if point_idx is not None and point_idx in selected_indices:
+                    item.setSelected(True)
+                for i in range(item.childCount()):
+                    select_by_indices(item.child(i))
+            root = self.area_tree.invisibleRootItem()
+            for i in range(root.childCount()):
+                select_by_indices(root.child(i))
+            self.set_tree_state(tree_state)
 
     def update_orders_from_tree(self):
         def update_orders(item, path):
@@ -1449,9 +1450,9 @@ class ControlPanel(QWidget):
             update_orders(root.child(i), [root.child(i).text(0)])
 
     def select_all_types(self, value=True):
-        for cb in self.type_checkboxes.values():
-            cb.setChecked(value)
-        self.update_plot()
+        with self.batch_update():
+            for cb in self.type_checkboxes.values():
+                cb.setChecked(value)
 
     def copy_camera_to_clipboard(self):
         cam = self.plotter.camera
