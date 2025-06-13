@@ -555,6 +555,8 @@ def update_point_in_file(point_idx, new_point, filename=DATA_FILENAME):
     positions[point_idx].update(new_point)
     save_positions_to_file(filename)
 
+from contextlib import contextmanager
+
 class ControlPanel(QWidget):
     def __init__(self, plotter):
         super().__init__()
@@ -562,9 +564,20 @@ class ControlPanel(QWidget):
         self.highlight_actor = None
         self.current_map_file = DATA_FILENAME
         self.workspace_loaded_path = None
+        self._suppress_update = False
         self.init_ui()
         self.plotter.add_callback(self.on_camera_changed, 100)
         ControlPanel.get_all_folder_paths = get_all_folder_paths
+    
+    @contextmanager
+    def batch_update(self):
+        self._suppress_update = True
+        try:
+            yield
+        finally:
+            self._suppress_update = False
+            self.update_plot()
+    
     def rebuild_type_checkboxes(self):
         # Remove old checkboxes
         for cb in getattr(self, "type_checkboxes", {}).values():
@@ -608,7 +621,7 @@ class ControlPanel(QWidget):
             walk(root.child(i), ())
         return {"expanded": expanded, "checked": checked, "selected": selected}
 
-    def set_tree_state(self, state):
+    def set_tree_state(self, state, suppress_update=False):
         expanded = state.get("expanded", set())
         checked = state.get("checked", set())
         selected = state.get("selected", set())
@@ -626,6 +639,8 @@ class ControlPanel(QWidget):
         root = self.area_tree.invisibleRootItem()
         for i in range(root.childCount()):
             walk(root.child(i), ())
+        if not suppress_update:
+            self.update_plot()
 
     def open_point_details_popup(self, point_idx):
         tree_state = self.get_tree_state()
@@ -701,18 +716,20 @@ class ControlPanel(QWidget):
                 self.set_selection_indices(prev_selection)
                 return
             positions[point_idx].update(new_point)
-            self.area_tree.clear()
-            tree_struct = build_tree_structure(positions)
-            fill_tree_widget(self.area_tree.invisibleRootItem(), tree_struct)
-            self.set_tree_state(tree_state)
-            self.update_plot()
-            self.set_selection_indices(prev_selection)
+            with self.batch_update():
+                self.area_tree.clear()
+                tree_struct = build_tree_structure(positions)
+                fill_tree_widget(self.area_tree.invisibleRootItem(), tree_struct)
+                self.set_tree_state(tree_state)
+                self.set_selection_indices(prev_selection)
             QMessageBox.information(self, "Point Updated", "Point updated and saved to file.")
         else:
             stop_preview()
             self.set_selection_indices(prev_selection)
 
     def update_plot(self):
+        if getattr(self, "_suppress_update", False):
+            return
         selected_point_indices = set()
         def collect_checked(item):
             point_idx = item.data(0, Qt.UserRole)
@@ -950,12 +967,12 @@ class ControlPanel(QWidget):
 
     def reload_positions(self):
         tree_state = self.get_tree_state()
-        self.area_tree.clear()
-        tree_struct = build_tree_structure(positions)
-        fill_tree_widget(self.area_tree.invisibleRootItem(), tree_struct)
-        self.set_tree_state(tree_state)
-        self.rebuild_type_checkboxes()
-        self.update_plot()
+        with self.batch_update():
+            self.area_tree.clear()
+            tree_struct = build_tree_structure(positions)
+            fill_tree_widget(self.area_tree.invisibleRootItem(), tree_struct)
+            self.set_tree_state(tree_state)
+            self.rebuild_type_checkboxes()
         folder_paths = self.get_all_folder_paths()
         save_positions_to_file(self.current_map_file, folder_paths=folder_paths)
 
@@ -1074,7 +1091,7 @@ class ControlPanel(QWidget):
             collect_checked(root.child(i))
         return indices
 
-    def set_selection_indices(self, indices):
+    def set_selection_indices(self, indices, suppress_update=False):
         indices = set(indices)
         def set_checked(item):
             point_idx = item.data(0, Qt.UserRole)
@@ -1092,7 +1109,8 @@ class ControlPanel(QWidget):
         for i in range(root.childCount()):
             set_checked(root.child(i))
         self.area_tree.blockSignals(False)
-        self.update_plot()
+        if not suppress_update:
+            self.update_plot()
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -1679,7 +1697,6 @@ if __name__ == "__main__":
         panel.marker_move_x.setText(str(orientation_marker_offset[0]))
         panel.marker_move_y.setText(str(orientation_marker_offset[1]))
         panel.marker_move_z.setText(str(orientation_marker_offset[2]))
-        panel.update_plot()
         panel.workspace_loaded_path = workspace_path  # <-- Add this line
 
     panel.show()
