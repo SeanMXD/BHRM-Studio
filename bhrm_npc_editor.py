@@ -248,6 +248,12 @@ def plot_points(selected_point_indices):
     unique_types = get_unique_types()
     type_colors = get_type_colors()
 
+    # --- Spot check wireframe mode from previous actors, if any ---
+    wireframe_mode = False
+    if point_actors:
+        rep = point_actors[0].GetProperty().GetRepresentation()
+        wireframe_mode = (rep == 1)  # 1 = wireframe, 2 = surface
+
     plotter.clear()
     point_actors.clear()
     arrow_actors.clear()
@@ -279,12 +285,15 @@ def plot_points(selected_point_indices):
             if p.get("command") == "bot spawn":
                 orientation = float(p.get("orientation", 0))
                 direction = orientation_to_vector(orientation)
-                # Draw NPC as cone
                 cone = pv.Cone(center=pos, direction=direction, height=cone_height, radius=cone_radius, resolution=24)
                 actor = plotter.add_mesh(cone, color=type_colors[t], name=f"point_{idx}")
+                # Apply previous wireframe/solid mode
+                if wireframe_mode:
+                    actor.GetProperty().SetRepresentationToWireframe()
+                else:
+                    actor.GetProperty().SetRepresentationToSurface()
                 point_actors.append(actor)
             elif p.get("command") == "spawn":
-                # Draw prop as wedge (triangular prism)
                 yaw = np.deg2rad(p.get("rot_z", 0))
                 pitch = np.deg2rad(-p.get("rot_x", 0))
                 roll = np.deg2rad(p.get("rot_y", 0))
@@ -315,8 +324,13 @@ def plot_points(selected_point_indices):
                 v_final = v_rot + pos
                 wedge = pv.PolyData(v_final, faces)
                 actor = plotter.add_mesh(wedge, color=type_colors[t], name=f"point_{idx}")
+                # Apply previous wireframe/solid mode
+                if wireframe_mode:
+                    actor.GetProperty().SetRepresentationToWireframe()
+                else:
+                    actor.GetProperty().SetRepresentationToSurface()
                 point_actors.append(actor)
-            # Do not plot anything for "raw" commands
+            # Do not plot anything for "raw" commands"
 
     # --- Orientation marker plotting (convert from Roblox axes to PyVista axes) ---
     if orientation_marker_visible and len(xs) > 0:

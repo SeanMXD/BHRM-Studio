@@ -174,6 +174,13 @@ Here are some ideas to further enhance BHRM Studio:
 - Ensure keyboard navigation works for all controls.
 - Add high-contrast or colorblind-friendly color schemes.
 
+### Developer Note: Wireframe/Solid Mode Persistence
+
+When updating or re-plotting points, the code spot-checks the representation mode (wireframe or solid) of the first actor and applies it to all new actors. This ensures that if the user toggles wireframe/solid mode in the PyVista window (e.g., by pressing `W` or `S`), the chosen mode persists across re-renders.
+
+**Technical note:**  
+PyVista/VTK does not provide a global "representation mode" for the entire window; the mode is stored per actor. The code checks the first actor as a proxy for the current mode. If you want full UI synchronization (e.g., a toggle button that always matches the PyVista state), consider polling the first actor's representation and updating the UI accordingly.
+
 ---
 
 *If you have suggestions or want to contribute, feel free to open an issue or pull request!*
