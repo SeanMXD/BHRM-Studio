@@ -174,6 +174,10 @@ Here are some ideas to further enhance BHRM Studio:
 - Ensure keyboard navigation works for all controls.
 - Add high-contrast or colorblind-friendly color schemes.
 
+### Wireframe/Solid Mode UI Elements & Workspace Persistence
+
+A planned feature is to allow users to toggle between wireframe and solid rendering modes directly from the application's UI, and to have this preference saved as part of the workspace file. This would ensure that when a workspace is loaded, the chosen rendering mode (wireframe or solid) is automatically restored, providing a consistent visual experience across sessions. While PyVista supports toggling these modes via keyboard shortcuts (`W` for wireframe, `S` for solid), integrating this functionality into the GUI and workspace persistence would make the workflow more intuitive and user-friendly. Implementation challenges include keeping the UI state synchronized with PyVista's internal representation, especially when the mode is changed outside the UI (e.g., via keyboard shortcuts).  One day there might also be the ability to toggle or persist wireframe/solid for individual objects.
+
 ### Developer Note: Wireframe/Solid Mode Persistence
 
 When updating or re-plotting points, the code spot-checks the representation mode (wireframe or solid) of the first actor and applies it to all new actors. This ensures that if the user toggles wireframe/solid mode in the PyVista window (e.g., by pressing `W` or `S`), the chosen mode persists across re-renders.
