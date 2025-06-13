@@ -1,26 +1,26 @@
 # BHRM Studio
 
 ## Purpose
-Visualizes and edits NPC spawn points for a Roblox game, using a 3D PyVista window and a Qt-based GUI.
+Visualizes and edits NPC spawn points, prop placements, and raw commands for a Roblox game, using a 3D PyVista window and a Qt-based GUI.
 
 ## Main Features
-- **Loads** NPC spawn points from a text file (`bot_spawn_commands.txt` by default).
-- **3D Visualization:** All points are shown in a PyVista window, color-coded by type.
-- **Tree View:** Points are organized in a tree by folder/path, with checkboxes for visibility.
-- **Editing:** Double-click a point (in tree or 3D) to edit its properties in a popup dialog.
-- **Clipboard:** Copy/paste points and camera positions/focals.
+- **Loads** NPC spawn points, prop placements, and raw commands from a text file (`bot_spawn_commands.txt` by default).
+- **3D Visualization:** All points and props are shown in a PyVista window, color-coded by type.
+- **Tree View:** Points, props, and commands are organized in a tree by folder/path, with checkboxes for visibility.
+- **Editing:** Double-click a point, prop, or command (in tree or 3D) to edit its properties in a popup dialog.
+- **Clipboard:** Copy/paste points, props, and camera positions/focals.
 - **Workspace:** Save/load workspace files (`.json`) that store camera, selection, marker, and file info.
 - **Orientation Marker:** Shows UP/NORTH in the 3D view, can be moved/hidden.
 - **Supports unknown/plaintext commands:** These are editable as raw text.
 
 ## Key Files
 - `bhrm_studio.py`: Main application logic, GUI, and 3D plotting.
-- `bot_spawn_commands.txt`: Default data file for NPC spawn points.
+- `bot_spawn_commands.txt`: Default data file for NPC spawn points, prop placements, and raw commands.
 
 ## Data Model
-- `positions`: List of dicts, each representing a point or command.
+- `positions`: List of dicts, each representing a point, prop, or command.
     - `"command"`: `"bot spawn"`, `"spawn"`, or `"raw"`
-    - `"type"`: NPC type (if not raw)
+    - `"type"`: NPC or prop type (if not raw)
     - `"roblox_x"`, `"roblox_y"`, `"roblox_z"`: Coordinates (if not raw)
     - `"orientation"` or `"rot_x"`, `"rot_y"`, `"rot_z"`: Orientation (if not raw)
     - `"path"`: Folder path as string
