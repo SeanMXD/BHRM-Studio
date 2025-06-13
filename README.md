@@ -64,11 +64,14 @@ Visualizes and edits NPC spawn points for a Roblox game, using a 3D PyVista wind
 - qtpy
 
 Install dependencies with:
-pip install numpy matplotlib pyvista pyvistaqt qtpy
+
+    pip install numpy matplotlib pyvista pyvistaqt qtpy
 
 ## Usage
 
 Run the editor with:
+
+    python bhrm_studio.py
 
 ## Building an Executable
 
