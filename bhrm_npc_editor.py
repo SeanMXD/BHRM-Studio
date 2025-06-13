@@ -648,7 +648,7 @@ class ControlPanel(QWidget):
         orig_point["_idx"] = point_idx
 
         def goto_point(point):
-            pos = np.array([point["roblox_x"], point["roblox_z"], point["roblox_y"]])
+            pos = np.array([-point["roblox_x"], point["roblox_z"], point["roblox_y"]])
             orientation = float(point.get("orientation", 0))
             angle_rad = np.deg2rad(orientation)
             offset = np.array([
@@ -660,10 +660,10 @@ class ControlPanel(QWidget):
             up = np.array([0, 0, 1])
             self.plotter.camera_position = [cam_pos.tolist(), pos.tolist(), up.tolist()]
             self.plotter.render()
-
+        
         def set_focal(point):
             cam = self.plotter.camera
-            pos = np.array([point["roblox_x"], point["roblox_z"], point["roblox_y"]])
+            pos = np.array([-point["roblox_x"], point["roblox_z"], point["roblox_y"]])
             self.plotter.camera_position = [list(cam.position), pos.tolist(), list(cam.up)]
             self.plotter.render()
 
