@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['bhrm_npc_editor.py'],
+    ['bhrm_studio.py'],
     pathex=[],
     binaries=[],
     datas=[],
@@ -26,7 +26,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='bhrm_npc_editor',
+    name='BHRM Studio',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

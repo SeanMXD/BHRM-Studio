@@ -14,7 +14,7 @@ Visualizes and edits NPC spawn points for a Roblox game, using a 3D PyVista wind
 - **Supports unknown/plaintext commands:** These are editable as raw text.
 
 ## Key Files
-- `bhrm_npc_editor.py`: Main application logic, GUI, and 3D plotting.
+- `bhrm_studio.py`: Main application logic, GUI, and 3D plotting.
 - `bot_spawn_commands.txt`: Default data file for NPC spawn points.
 
 ## Data Model
@@ -73,16 +73,16 @@ Run the editor with:
 ## Building an Executable
 
 You can use PyInstaller to build a standalone executable:
-pyinstaller bhrm_npc_editor.spec
+pyinstaller bhrm_studio.spec
 
 ## Project File Overview
 
 ### Main Application Files
 
-- **bhrm_npc_editor.py**  
+- **bhrm_studio.py**  
   The main Python application. Provides a Qt-based GUI and a 3D PyVista visualization for editing and managing NPC spawn points for Black Hawk Rescue Mission. Handles file I/O, workspace management, clipboard operations, and all user interactions.
 
-- **bhrm_npc_editor.spec**  
+- **bhrm_studio.spec**  
   PyInstaller specification file for building a standalone executable of the editor. Lists hidden imports and resources needed for packaging.
 
 - **bot_spawn_commands.txt**  
@@ -110,7 +110,7 @@ pyinstaller bhrm_npc_editor.spec
 
 - **/build, /dist**  
   Output folders created by PyInstaller when building the executable.  
-  - `dist/bhrm_npc_editor.exe`: The compiled standalone application.
+  - `dist/bhrm_studio.exe`: The compiled standalone application.
 
 ### Other Files
 

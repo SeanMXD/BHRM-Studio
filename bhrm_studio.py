@@ -230,7 +230,7 @@ def get_type_colors():
     unique_types = get_unique_types()
     return {t: color_list[i % len(color_list)] for i, t in enumerate(unique_types)}
 
-plotter = BackgroundPlotter(show=True, title="BHRM NPC Point Positions (PyVista)")
+plotter = BackgroundPlotter(show=True, title="BHRM Studio (3D View)")
 
 type_actors = {}
 point_actors = []

@@ -1,1 +1,1 @@
-pyinstaller bhrm_npc_editor.spec
+pyinstaller bhrm_studio.spec
