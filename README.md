@@ -1,7 +1,10 @@
 # BHRM Studio
 
 ## Purpose
-Visualizes and edits NPC spawn points, prop placements, and raw commands for a Roblox game, using a 3D PyVista window and a Qt-based GUI.
+Visualizes and edits NPC spawn points, prop placements, and raw commands for Black Hawk Rescue Mission, a Roblox game, using a 3D PyVista window and a Qt-based GUI.
+
+**Note:**  
+This tool is designed for use with private servers in Black Hawk Rescue Mission. The commands generated and edited by this tool are compatible with the Realtime Game Editor (RGE) in-game. To use these commands, press `P` in-game to enable cheats, then paste or enter the commands as needed.
 
 ## Main Features
 - **Loads** NPC spawn points, prop placements, and raw commands from a text file (`bot_spawn_commands.txt` by default).
