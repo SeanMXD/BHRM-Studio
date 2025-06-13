@@ -1594,7 +1594,14 @@ class ControlPanel(QWidget):
         lines = []
         for idx in sorted(visible_indices):
             p = positions[idx]
-            lines.append(f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p['orientation']}")
+            if p.get("command") == "bot spawn":
+                lines.append(f"bot spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p.get('orientation', 0)}")
+            elif p.get("command") == "spawn":
+                lines.append(f"spawn 1 {p['type']} {p['roblox_x']} {p['roblox_y']} {p['roblox_z']} {p.get('rot_x', 0)} {p.get('rot_y', 0)} {p.get('rot_z', 0)}")
+            elif p.get("command") == "raw":
+                lines.append(p.get("raw_line", ""))
+            else:
+                continue
         clipboard = QApplication.clipboard()
         clipboard.setText("\n".join(lines))
         QMessageBox.information(self, "Copied", f"Copied {len(lines)} visible points to clipboard.")
