@@ -134,3 +134,46 @@ pyinstaller bhrm_npc_editor.spec
 ---
 
 > For more details on each file's purpose, see the in-code comments or the README sections above.
+
+## Suggestions & Future Improvements
+
+Here are some ideas to further enhance BHRM Studio:
+
+### Undo/Redo Support
+- Implement undo/redo for point edits, deletions, and moves to help recover from mistakes.
+
+### Error Handling & Validation
+- Add user-friendly error messages and input validation (e.g., prevent non-numeric input in coordinate fields).
+- Highlight or focus fields with invalid input.
+
+### Performance for Large Maps
+- For large numbers of points, consider:
+  - Only updating/redrawing visible/changed points.
+  - Using a background thread for file I/O or heavy parsing.
+
+### Export/Import Enhancements
+- Support exporting to other formats (CSV, JSON, etc.).
+- Allow importing from other formats or merging files.
+
+### UI/UX Improvements
+- Add tooltips to buttons and fields for clarity.
+- Add a status bar for quick feedback (e.g., “Saved”, “Loaded”, “Copied”).
+- Allow multi-select and batch editing of points.
+
+### Settings Persistence
+- Remember window size/position, last opened files, and UI preferences between sessions.
+
+### Documentation
+- Add screenshots or GIFs to this README.
+- Document keyboard shortcuts and power-user features.
+
+### Testing
+- Add unit tests for parsing, saving, and coordinate conversion functions.
+
+### Accessibility
+- Ensure keyboard navigation works for all controls.
+- Add high-contrast or colorblind-friendly color schemes.
+
+---
+
+*If you have suggestions or want to contribute, feel free to open an issue or pull request!*
