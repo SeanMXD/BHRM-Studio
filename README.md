@@ -2,7 +2,7 @@
 
 If BHRM Studio saves you time, please consider buying me a coffee: [buymeacoffee.com/SeanMXD](https://buymeacoffee.com/SeanMXD)
 
-Check out the [discussions](https://github.com/SeanMXD/BHRM-Studio/discussions) on this repo!  If you contribute to this codebase your coffee link can be here too!
+Check out the [discussions](https://github.com/SeanMXD/BHRM-Studio/discussions) on this repo!  If you contribute to BHRM Studio your coffee link can be here too!
 
 ## Purpose
 Visualizes and edits NPC spawn points, prop placements, and raw commands for Black Hawk Rescue Mission, a Roblox game, using a 3D PyVista window and a Qt-based GUI.
